@@ -252,10 +252,31 @@
   // ---------- caméra ----------
   const camStatus = (msg, err) => { const e = $('#camStatus'); e.textContent = msg || ''; e.className = 'status' + (err ? ' err' : ''); };
 
+  // Explique pourquoi la caméra est refusée et comment la débloquer
+  function camHelp(e) {
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const inApp = /FBAN|FBAV|Instagram|Line\/|Snapchat|TikTok|MicroMessenger|GSA\/|; wv\)|Claude|GitHub/i.test(ua)
+      || (ios && !/Safari\//.test(ua));
+    const framed = window.self !== window.top;
+    if (framed || inApp) {
+      return "Tu es dans un navigateur intégré (app, aperçu…) qui bloque la caméra. Copie l'adresse et ouvre-la directement dans Safari (iPhone) ou Chrome (Android).";
+    }
+    if (!window.isSecureContext) return "La caméra exige une adresse en https://. Ouvre le site avec https://.";
+    if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+      return ios
+        ? "Caméra bloquée. iPhone : Réglages › Safari › Caméra › Demander (ou Autoriser), puis recharge la page. Ou touche « aA » dans la barre d'adresse › Réglages du site web › Caméra › Autoriser."
+        : "Caméra bloquée. Touche le cadenas à gauche de l'adresse › Autorisations › Caméra › Autoriser, puis recharge la page.";
+    }
+    if (e && e.name === 'NotFoundError') return "Aucune caméra trouvée sur cet appareil.";
+    if (e && e.name === 'NotReadableError') return "La caméra est utilisée par une autre application. Ferme-la et réessaie.";
+    return "Caméra indisponible" + (e ? " (" + e.name + ")" : "") + ". Utilise « Depuis une photo » en attendant.";
+  }
+
   async function startCamera() {
     stopCamera();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      camStatus("Caméra indisponible : ouvre ce site en HTTPS (ex. GitHub Pages) ou utilise « Depuis une photo ».", true);
+      camStatus(camHelp(null), true);
       return;
     }
     try {
@@ -264,7 +285,7 @@
         video: { facingMode: { ideal: S.facing }, width: { ideal: 1280 }, height: { ideal: 960 } },
       });
     } catch (e) {
-      camStatus("Accès caméra refusé ou impossible (" + (e.name || 'erreur') + "). Utilise « Depuis une photo ».", true);
+      camStatus(camHelp(e), true);
       return;
     }
     video.srcObject = S.stream;
