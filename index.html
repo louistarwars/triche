@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1c2326">
+<title>Colorimètre Triche</title>
+<style>
+  :root {
+    --bg: #1c2326;
+    --panel: #272f33;
+    --panel-2: #313b40;
+    --text: #f4f6f7;
+    --muted: #9aa7ad;
+    --accent: #ffd23f;
+    --ok: #4ade80;
+    --bad: #f87171;
+    --radius: 16px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 12px 16px 48px; max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 8px 0 2px; letter-spacing: .02em; }
+  .sub { color: var(--muted); font-size: .85rem; margin: 0 0 14px; }
+  .card { background: var(--panel); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; }
+  .card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+  .step { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--accent); color: #222; font-weight: 800; font-size: .72rem; margin-right: 6px; }
+
+  .cam { position: relative; width: 100%; background: #000; border-radius: 12px; overflow: hidden;
+    aspect-ratio: 3 / 4; touch-action: manipulation; }
+  .cam video, .cam img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: block; }
+  .reticle { position: absolute; border: 3px solid #fff; border-radius: 50%;
+    box-shadow: 0 0 0 2px #000, inset 0 0 0 2px #000; transform: translate(-50%, -50%); pointer-events: none; }
+  .cam .hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 10px; font-size: .78rem;
+    background: linear-gradient(transparent, rgba(0,0,0,.7)); pointer-events: none; }
+  .cam .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    padding: 24px; color: var(--muted); font-size: .9rem; }
+
+  [hidden] { display: none !important; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button, .btn { appearance: none; border: 0; border-radius: 12px; padding: 12px 14px; font: inherit; font-weight: 700;
+    background: var(--panel-2); color: var(--text); cursor: pointer; flex: 1 1 auto; text-align: center; }
+  button:active, .btn:active { transform: scale(.98); }
+  button.primary { background: var(--accent); color: #222; }
+  button.big { padding: 18px 14px; font-size: 1.05rem; }
+  button:disabled { opacity: .45; }
+  input[type=file] { display: none; }
+  label.slider { display: flex; align-items: center; gap: 10px; font-size: .82rem; color: var(--muted); margin-top: 10px; }
+  label.slider input { flex: 1; }
+
+  .swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .sw { border-radius: 12px; height: 84px; display: grid; place-items: end start; padding: 8px 10px;
+    font-size: .72rem; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.7); border: 2px solid rgba(255,255,255,.12);
+    background: #333; }
+
+  .score { text-align: center; margin: 14px 0 4px; }
+  .score .num { font-size: 2.6rem; font-weight: 900; line-height: 1; }
+  .score .lbl { color: var(--muted); font-size: .78rem; }
+  .bar { height: 10px; background: var(--panel-2); border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--bad); transition: width .15s, background .15s; }
+
+  .ctl { margin-top: 16px; }
+  .ctl .top { display: flex; justify-content: space-between; align-items: baseline; font-weight: 800;
+    text-transform: uppercase; font-size: .82rem; letter-spacing: .04em; }
+  .ctl .top .val { color: var(--muted); font-weight: 600; text-transform: none; font-size: .78rem; }
+  .track { position: relative; height: 26px; border-radius: 99px; margin: 10px 4px 6px; }
+  .knob { position: absolute; top: 50%; width: 30px; height: 30px; border-radius: 50%;
+    transform: translate(-50%, -50%); }
+  .knob.t { background: #fff; box-shadow: 0 0 0 3px #000, 0 2px 8px rgba(0,0,0,.6); z-index: 2; }
+  .knob.c { width: 16px; height: 16px; background: var(--accent); box-shadow: 0 0 0 2px #000; z-index: 3; display: none; }
+  .advice { font-size: .95rem; font-weight: 700; min-height: 1.3em; }
+  .advice.ok { color: var(--ok); }
+  .advice.go { color: var(--accent); }
+  .legend { display: flex; gap: 14px; font-size: .72rem; color: var(--muted); margin-top: 10px; }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    margin-right: 5px; vertical-align: -1px; }
+  .legend .lt::before { background: #fff; box-shadow: 0 0 0 2px #000; }
+  .legend .lc::before { background: var(--accent); box-shadow: 0 0 0 2px #000; }
+
+  ol.tips { margin: 0; padding-left: 18px; color: var(--muted); font-size: .84rem; line-height: 1.5; }
+  ol.tips b { color: var(--text); }
+  .status { font-size: .78rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
+  .err { color: var(--bad); }
+</style>
+</head>
+<body>
+
+<h1>🎯 Colorimètre Triche</h1>
+<p class="sub">Ton téléphone « regarde » l'écran de la tablette, mesure la couleur à mémoriser, puis te guide en direct pour régler les 3 curseurs.</p>
+
+<section class="card">
+  <h2><span class="step">1</span>Caméra</h2>
+  <div class="cam" id="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <img id="still" alt="" hidden>
+    <div class="reticle" id="reticle" style="left:50%;top:50%;width:20%;aspect-ratio:1"></div>
+    <div class="empty" id="empty">Pointe le téléphone vers la zone de couleur de la tablette.<br>Touche l'image pour déplacer le cercle de mesure.</div>
+    <div class="hint" id="hint" hidden>Touche l'image pour placer le cercle sur la grande zone de couleur.</div>
+  </div>
+  <div class="row">
+    <button class="primary" id="btnStart">Activer la caméra</button>
+    <button id="btnFlip" disabled>Retourner</button>
+    <button id="btnLock" disabled>🔒 Verrouiller</button>
+  </div>
+  <label class="slider">Taille du cercle
+    <input type="range" id="radius" min="4" max="40" value="14">
+  </label>
+  <div class="status" id="camStatus"></div>
+</section>
+
+<section class="card">
+  <h2><span class="step">2</span>Mémorise</h2>
+  <button class="primary big" id="btnCapture" style="width:100%" disabled>📸 Capturer la couleur cible</button>
+  <div class="row">
+    <label class="btn" for="fileTarget">📁 Depuis une photo</label>
+    <input type="file" id="fileTarget" accept="image/*">
+  </div>
+  <div class="status">Appuie dès que la couleur s'affiche (mesure instantanée sur ~0,5 s). Tu peux recapturer autant de fois que tu veux tant qu'elle est visible.</div>
+</section>
+
+<section class="card">
+  <h2><span class="step">3</span>Recrée-la</h2>
+  <div class="swatches">
+    <div class="sw" id="swTarget">Cible</div>
+    <div class="sw" id="swCurrent">Actuelle</div>
+  </div>
+
+  <div class="score">
+    <div class="num" id="scoreNum">–</div>
+    <div class="lbl">proximité estimée (100 % = identique)</div>
+    <div class="bar"><i id="scoreBar"></i></div>
+  </div>
+
+  <div class="ctl">
+    <div class="top"><span>Teinte</span><span class="val" id="valH">–</span></div>
+    <div class="track" id="trH"><div class="knob t" id="kTH"></div><div class="knob c" id="kCH"></div></div>
+    <div class="advice" id="advH"></div>
+  </div>
+  <div class="ctl">
+    <div class="top"><span>Saturation</span><span class="val" id="valS">–</span></div>
+    <div class="track" id="trS"><div class="knob t" id="kTS"></div><div class="knob c" id="kCS"></div></div>
+    <div class="advice" id="advS"></div>
+  </div>
+  <div class="ctl">
+    <div class="top"><span>Luminosité</span><span class="val" id="valV">–</span></div>
+    <div class="track" id="trV"><div class="knob t" id="kTV"></div><div class="knob c" id="kCV"></div></div>
+    <div class="advice" id="advV"></div>
+  </div>
+  <div class="row">
+    <label class="btn" for="fileCurrent">📁 Couleur actuelle depuis une photo</label>
+    <input type="file" id="fileCurrent" accept="image/*">
+  </div>
+  <div class="legend"><span class="lt">Position cible</span><span class="lc">Position actuelle (mesurée)</span></div>
+</section>
+
+<section class="card">
+  <h2>Pour viser 98 %+</h2>
+  <ol class="tips">
+    <li>Cale le téléphone (pile de livres, support) <b>sans le bouger</b> entre la mémorisation et la recréation.</li>
+    <li>Sur la tablette : <b>luminosité manuelle</b>, True Tone / éclairage adaptatif <b>désactivés</b>. Évite les reflets (pièce sombre ou écran incliné).</li>
+    <li>Appuie sur <b>🔒 Verrouiller</b> avant la partie : ça fige exposition et balance des blancs quand le navigateur le permet (Chrome Android). Sinon, tant pis, la comparaison en direct compense déjà l'essentiel.</li>
+    <li>Place le cercle sur la <b>grande zone de couleur</b>, loin des boutons et du texte.</li>
+    <li>Règle d'abord <b>Teinte</b>, puis <b>Luminosité</b>, puis <b>Saturation</b>, jusqu'à ce que les trois lignes affichent ✓.</li>
+  </ol>
+</section>
+
+<script>
+(() => {
+  const $ = (s) => document.querySelector(s);
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+
+  // ---------- état ----------
+  const S = {
+    stream: null, facing: 'environment',
+    px: 0.5, py: 0.5,            // position du cercle (0..1)
+    rad: 0.14,                   // rayon en fraction de la largeur
+    buf: [],                     // dernières mesures RGB
+    target: null,                // {r,g,b,h,s,v}
+    current: null,
+    still: null,                 // image fixe éventuelle {canvas}
+  };
+  const work = document.createElement('canvas');
+  const wctx = work.getContext('2d', { willReadFrequently: true });
+  const video = $('#video'), still = $('#still'), cam = $('#cam'), reticle = $('#reticle');
+
+  // ---------- couleurs ----------
+  function rgb2hsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    let h = 0;
+    if (d) {
+      if (mx === r) h = ((g - b) / d) % 6;
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    return { h, s: mx ? d / mx : 0, v: mx };
+  }
+  function hsv2rgb(h, s, v) {
+    const c = v * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = v - c;
+    const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
+                    : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+  }
+  function rgb2lab(r, g, b) {
+    const f = (u) => { u /= 255; return u <= .04045 ? u / 12.92 : Math.pow((u + .055) / 1.055, 2.4); };
+    const R = f(r), G = f(g), B = f(b);
+    const X = (R * .4124 + G * .3576 + B * .1805) / .95047;
+    const Y = (R * .2126 + G * .7152 + B * .0722);
+    const Z = (R * .0193 + G * .1192 + B * .9505) / 1.08883;
+    const t = (u) => u > .008856 ? Math.cbrt(u) : 7.787 * u + 16 / 116;
+    return [116 * t(Y) - 16, 500 * (t(X) - t(Y)), 200 * (t(Y) - t(Z))];
+  }
+  const deltaE = (a, b) => {
+    const A = rgb2lab(a.r, a.g, a.b), B = rgb2lab(b.r, b.g, b.b);
+    return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]);
+  };
+  const withHsv = (r, g, b) => ({ r, g, b, ...rgb2hsv(r, g, b) });
+  const css = (r, g, b) => `rgb(${r},${g},${b})`;
+
+  // ---------- mesure ----------
+  const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+
+  function sampleFrom(source, sw, sh) {
+    const W = 192, H = Math.round(W * sh / sw);
+    work.width = W; work.height = H;
+    wctx.drawImage(source, 0, 0, W, H);
+    const cx = S.px * W, cy = S.py * H, R = Math.max(2, S.rad * W);
+    const x0 = Math.max(0, Math.floor(cx - R)), x1 = Math.min(W, Math.ceil(cx + R));
+    const y0 = Math.max(0, Math.floor(cy - R)), y1 = Math.min(H, Math.ceil(cy + R));
+    const w = x1 - x0, h = y1 - y0;
+    if (w < 1 || h < 1) return null;
+    const d = wctx.getImageData(x0, y0, w, h).data;
+    const rs = [], gs = [], bs = [];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (Math.hypot(x0 + x - cx, y0 + y - cy) > R) continue;
+      const i = (y * w + x) * 4;
+      rs.push(d[i]); gs.push(d[i + 1]); bs.push(d[i + 2]);
+    }
+    if (!rs.length) return null;
+    // médiane par canal : rejette les reflets et petits éléments d'interface
+    return [median(rs), median(gs), median(bs)];
+  }
+
+  function readVideo() {
+    if (video.readyState < 2 || !video.videoWidth) return null;
+    return sampleFrom(video, video.videoWidth, video.videoHeight);
+  }
+
+  // ---------- caméra ----------
+  const camStatus = (msg, err) => { const e = $('#camStatus'); e.textContent = msg || ''; e.className = 'status' + (err ? ' err' : ''); };
+
+  async function startCamera() {
+    stopCamera();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camStatus("Caméra indisponible : ouvre ce site en HTTPS (ex. GitHub Pages) ou utilise « Depuis une photo ».", true);
+      return;
+    }
+    try {
+      S.stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: S.facing }, width: { ideal: 1280 }, height: { ideal: 960 } },
+      });
+    } catch (e) {
+      camStatus("Accès caméra refusé ou impossible (" + (e.name || 'erreur') + "). Utilise « Depuis une photo ».", true);
+      return;
+    }
+    video.srcObject = S.stream;
+    await video.play().catch(() => {});
+    S.still = null; still.hidden = true; video.hidden = false;
+    video.onloadedmetadata = fitAspect;
+    fitAspect();
+    $('#empty').hidden = true; $('#hint').hidden = false;
+    $('#btnStart').textContent = 'Redémarrer';
+    $('#btnFlip').disabled = false; $('#btnLock').disabled = false; $('#btnCapture').disabled = false;
+    camStatus('Caméra active.');
+  }
+  function stopCamera() {
+    if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
+    S.stream = null; S.buf = [];
+  }
+  function fitAspect() {
+    if (video.videoWidth) cam.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
+  }
+
+  // Verrouille exposition / balance des blancs / mise au point si le navigateur sait le faire
+  async function lockCamera() {
+    const track = S.stream && S.stream.getVideoTracks()[0];
+    if (!track) return;
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    const set = track.getSettings ? track.getSettings() : {};
+    const done = [];
+    const tryAdv = async (name, obj) => {
+      try { await track.applyConstraints({ advanced: [obj] }); done.push(name); } catch (_) {}
+    };
+    if (caps.exposureMode && caps.exposureMode.includes('manual')) {
+      const o = { exposureMode: 'manual' };
+      if (set.exposureTime != null) o.exposureTime = set.exposureTime;
+      if (set.iso != null) o.iso = set.iso;
+      await tryAdv('exposition', o);
+    }
+    if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('manual')) {
+      const o = { whiteBalanceMode: 'manual' };
+      if (set.colorTemperature != null) o.colorTemperature = set.colorTemperature;
+      await tryAdv('balance des blancs', o);
+    }
+    if (caps.focusMode && caps.focusMode.includes('manual')) {
+      const o = { focusMode: 'manual' };
+      if (set.focusDistance != null) o.focusDistance = set.focusDistance;
+      await tryAdv('mise au point', o);
+    }
+    camStatus(done.length
+      ? '🔒 Verrouillé : ' + done.join(', ') + '.'
+      : "Ce navigateur ne permet pas de verrouiller la caméra (normal sur iPhone). Ça marchera quand même, un peu moins précisément.");
+  }
+
+  // ---------- cercle de mesure ----------
+  function placeReticle() {
+    reticle.style.left = (S.px * 100) + '%';
+    reticle.style.top = (S.py * 100) + '%';
+    reticle.style.width = (S.rad * 200) + '%';
+  }
+  cam.addEventListener('click', (e) => {
+    const r = cam.getBoundingClientRect();
+    S.px = clamp((e.clientX - r.left) / r.width, 0, 1);
+    S.py = clamp((e.clientY - r.top) / r.height, 0, 1);
+    S.buf = [];
+    placeReticle();
+    if (S.still) refreshStill();
+  });
+  $('#radius').addEventListener('input', (e) => { S.rad = e.target.value / 100; S.buf = []; placeReticle(); if (S.still) refreshStill(); });
+
+  // ---------- capture de la cible ----------
+  function setTarget(rgb) {
+    S.target = withHsv(rgb[0], rgb[1], rgb[2]);
+    paintTarget();
+    render();
+  }
+  $('#btnCapture').addEventListener('click', () => {
+    let rgb;
+    if (S.buf.length >= 3) {
+      rgb = [0, 1, 2].map((i) => median(S.buf.map((s) => s[i])));
+    } else {
+      rgb = readVideo();
+    }
+    if (!rgb) { camStatus('Pas encore d\'image, réessaie.', true); return; }
+    setTarget(rgb);
+    camStatus('Couleur cible capturée.');
+  });
+
+  // ---------- photos (secours sans caméra) ----------
+  function refreshStill() {
+    const s = S.still; if (!s) return;
+    const rgb = sampleFrom(s.img, s.img.naturalWidth, s.img.naturalHeight);
+    if (rgb) s.rgb = rgb;
+  }
+  function loadPhoto(file, cb) {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      stopCamera();
+      video.hidden = true; still.hidden = false; still.src = url;
+      cam.style.aspectRatio = img.naturalWidth + ' / ' + img.naturalHeight;
+      $('#empty').hidden = true; $('#hint').hidden = false;
+      S.still = { img, rgb: null };
+      refreshStill();
+      if (S.still.rgb) cb(S.still.rgb);
+    };
+    img.src = url;
+  }
+  $('#fileTarget').addEventListener('change', (e) => { loadPhoto(e.target.files[0], setTarget); e.target.value = ''; });
+  $('#fileCurrent').addEventListener('change', (e) => {
+    loadPhoto(e.target.files[0], (rgb) => { S.current = withHsv(rgb[0], rgb[1], rgb[2]); render(); });
+    e.target.value = '';
+  });
+
+  // ---------- affichage ----------
+  const T = (id) => $(id);
+  function paintTarget() {
+    const t = S.target; if (!t) return;
+    const sw = $('#swTarget');
+    sw.style.background = css(t.r, t.g, t.b);
+    sw.textContent = 'Cible';
+    // dégradés des pistes selon la teinte cible
+    $('#trH').style.background = 'linear-gradient(90deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)';
+    const sat = css(...hsv2rgb(t.h, 0.0, t.v));
+    $('#trS').style.background = `linear-gradient(90deg, ${sat}, ${css(...hsv2rgb(t.h, 1, t.v))})`;
+    $('#trV').style.background = `linear-gradient(90deg, #000, ${css(...hsv2rgb(t.h, t.s, 1))})`;
+  }
+
+  const pct = (x) => Math.round(x * 1000) / 10;
+  function advice(el, delta, unitFmt, tol) {
+    const a = Math.abs(delta);
+    if (a <= tol) { el.textContent = '✓ OK'; el.className = 'advice ok'; return; }
+    el.textContent = (delta > 0 ? '→ Plus à droite  ' : '← Plus à gauche  ') + unitFmt(a);
+    el.className = 'advice go';
+  }
+  function placeKnob(id, frac, show = true) {
+    const k = $(id); k.style.left = (clamp(frac, 0, 1) * 100) + '%';
+    if (show) k.style.display = 'block';
+  }
+
+  function render() {
+    const t = S.target, c = S.current;
+    if (t) {
+      placeKnob('#kTH', t.h / 360); placeKnob('#kTS', t.s); placeKnob('#kTV', t.v);
+      $('#valH').textContent = `cible ${Math.round(t.h)}° · ${pct(t.h / 360)} % de la piste`;
+      $('#valS').textContent = `cible ${pct(t.s)} %`;
+      $('#valV').textContent = `cible ${pct(t.v)} %`;
+    }
+    if (!t || !c) {
+      if (t) { $('#advH').textContent = $('#advS').textContent = $('#advV').textContent = 'Bouge un curseur sur la tablette pour que je compare…'; }
+      return;
+    }
+    placeKnob('#kCH', c.h / 360); placeKnob('#kCS', c.s); placeKnob('#kCV', c.v);
+    $('#swCurrent').style.background = css(c.r, c.g, c.b);
+
+    // Teinte : chemin le plus court sur le cercle chromatique
+    let dh = t.h - c.h; if (dh > 180) dh -= 360; if (dh < -180) dh += 360;
+    // Si la saturation ou la luminosité est très faible, la teinte mesurée est peu fiable
+    const hueReliable = t.s > 0.08 && t.v > 0.08 && c.s > 0.05 && c.v > 0.05;
+    if (hueReliable) advice($('#advH'), dh, (a) => `de ${Math.round(a)}° (≈ ${pct(a / 360)} % de la piste)`, 1.5);
+    else { $('#advH').textContent = 'Teinte peu fiable (couleur trop pâle ou sombre)'; $('#advH').className = 'advice'; }
+    advice($('#advS'), t.s - c.s, (a) => `de ${pct(a)} %`, 0.015);
+    advice($('#advV'), t.v - c.v, (a) => `de ${pct(a)} %`, 0.015);
+
+    const dE = deltaE(t, c);
+    const score = clamp(100 - dE, 0, 100);
+    $('#scoreNum').textContent = score.toFixed(1) + ' %';
+    const bar = $('#scoreBar');
+    bar.style.width = score + '%';
+    bar.style.background = score >= 98 ? 'var(--ok)' : score >= 90 ? 'var(--accent)' : 'var(--bad)';
+    $('#scoreNum').style.color = score >= 98 ? 'var(--ok)' : '';
+  }
+
+  // ---------- boucle ----------
+  let last = 0;
+  function loop(ts) {
+    requestAnimationFrame(loop);
+    if (ts - last < 70) return;       // ~14 mesures/s
+    last = ts;
+    if (!S.stream) return;
+    const rgb = readVideo();
+    if (!rgb) return;
+    S.buf.push(rgb); if (S.buf.length > 8) S.buf.shift();
+    const smooth = [0, 1, 2].map((i) => median(S.buf.map((s) => s[i])));
+    S.current = withHsv(smooth[0], smooth[1], smooth[2]);
+    render();
+  }
+
+  // ---------- événements ----------
+  $('#btnStart').addEventListener('click', startCamera);
+  $('#btnFlip').addEventListener('click', () => { S.facing = S.facing === 'environment' ? 'user' : 'environment'; startCamera(); });
+  $('#btnLock').addEventListener('click', lockCamera);
+
+  placeReticle();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
