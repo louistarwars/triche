@@ -1,0 +1,47 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Tests de la logique (détection + simulation du jeu)
+        run: ./gradlew -p sim test --no-daemon
+
+      - name: Compilation de l'APK
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+      - name: Préparer l'APK
+        run: cp app/build/outputs/apk/debug/triche-bot-debug.apk triche-bot.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: triche-bot
+          path: triche-bot.apk
+
+      - name: Envoyer l'APK sur Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::warning::Secret DISCORD_WEBHOOK_URL absent : l'APK n'est pas envoyé sur Discord (il reste dans les artefacts du workflow)."
+            exit 0
+          fi
+          curl -sS --fail \
+            -F "payload_json={\"content\":\"Nouvel APK Triche (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
+            -F "file=@triche-bot.apk" \
+            "$DISCORD_WEBHOOK_URL"
