@@ -13,8 +13,10 @@ class Controller {
         const val GRAVITY = 3.4f
         const val JUMP = -0.60f
         const val RISE = JUMP * JUMP / (2 * GRAVITY)          // hauteur d'un saut ≈ 0,053 L
-        const val AIM_BIAS = RISE / 2                         // centre l'oscillation sur le milieu du trou
-        const val SAFETY = 0.02f
+        const val LOW_BIAS = 0.025f                            // vise plus bas que le milieu : en vrai il montait trop
+        const val AIM_BIAS = RISE / 2 + LOW_BIAS              // centre l'oscillation un peu sous le milieu du trou
+        const val SAFETY = 0.02f                              // marge côté sol
+        const val SAFETY_TOP = 0.03f                          // marge côté plafond, plus large
         const val DEFAULT_LATENCY = 0.09
     }
 
@@ -65,16 +67,16 @@ class Controller {
             gapTop = obs.fieldTop / unit
             gapBottom = obs.fieldBottom / unit
         }
-        val aim = (gapTop + gapBottom) / 2 + AIM_BIAS
 
         val h = latency.toFloat()
         val yPred = y + vy * h + 0.5f * GRAVITY * h * h
         val vPred = vy + GRAVITY * h
-        val safeTop = gapTop + half + SAFETY
+        val safeTop = gapTop + half + SAFETY_TOP
         val safeBottom = gapBottom - half - SAFETY
+        val aim = min((gapTop + gapBottom) / 2 + AIM_BIAS, safeBottom - 0.03f)
 
         var want = yPred >= aim && vPred > -0.15f
-        if (want && yPred - RISE < safeTop && yPred < safeBottom) want = false // le saut taperait le plafond
+        if (want && yPred - RISE * 1.15f < safeTop && yPred < safeBottom) want = false // le saut taperait le plafond
         if (!want) return false
         tapSentAt = t
         vyAtTap = vy
