@@ -1,9 +1,10 @@
-package fr.triche.bot
+package fr.triche.colis
 
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -31,7 +32,7 @@ class MainActivity : Activity() {
             setPadding(pad, pad * 2, pad, pad)
         }
         col.addView(TextView(this).apply {
-            text = "Triche"
+            text = "Triche Colis"
             textSize = 28f
             gravity = Gravity.CENTER_HORIZONTAL
         })
@@ -45,13 +46,19 @@ class MainActivity : Activity() {
             text = "1. Activer le service d'accessibilité"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
         })
+        col.addView(Button(this).apply {
+            text = "2. Autoriser le bouton STOP flottant"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            }
+        })
         start = Button(this).apply {
-            text = "2. Démarrer le bot"
+            text = "3. Démarrer le bot"
             setOnClickListener { askCapture() }
         }
         col.addView(start)
         stop = Button(this).apply {
-            text = "Arrêter"
+            text = "Arrêter le bot"
             setOnClickListener {
                 startService(Intent(this@MainActivity, BotService::class.java).setAction(BotService.ACTION_STOP))
                 refresh()
@@ -63,13 +70,16 @@ class MainActivity : Activity() {
             textSize = 14f
             setPadding(0, pad, 0, 0)
             text = "Mode d'emploi\n" +
-                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche ». " +
+                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche Colis ». " +
                 "Si Android l'interdit (réglage restreint), ouvre Infos de l'appli > ⋮ > « Autoriser les paramètres restreints ».\n" +
-                "• Étape 2 : appuie sur « Démarrer le bot » et accepte la capture d'écran.\n" +
-                "• Ouvre le jeu, touche l'écran une fois pour lancer la partie : le bot prend le relais " +
-                "et passe entre les piliers tout seul.\n" +
-                "• Une fois la partie finie, relance toi-même la suivante (le bot se remet en attente).\n" +
-                "• Pour arrêter : bouton « Arrêter » de la notification."
+                "• Étape 2 : autorise l'affichage par-dessus les autres applis (bouton STOP).\n" +
+                "• Étape 3 : « Démarrer le bot » et accepte la capture d'écran.\n" +
+                "• Ouvre Parcel Panic et lance la partie : dès que le tapis apparaît, le bot trie les colis " +
+                "(rouge ← gauche, jaune ↑ haut, bleu → droite).\n" +
+                "• Le bouton rouge « ■ STOP n » (déplaçable) affiche le nombre de colis triés. " +
+                "Appuie dessus quand tu as le score voulu : le bot arrête de glisser (« ▶ GO » pour reprendre). " +
+                "Les colis suivants ne seront pas triés et la partie se termine sur ce score.\n" +
+                "• Arrêt complet : bouton « Arrêter » de la notification."
         })
         setContentView(ScrollView(this).apply { addView(col) })
 
@@ -83,8 +93,10 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         val acc = TapService.instance != null
+        val over = Settings.canDrawOverlays(this)
         val run = BotService.running
         status.text = (if (acc) "✅ Service d'accessibilité actif" else "❌ Service d'accessibilité inactif") + "\n" +
+            (if (over) "✅ Bouton STOP flottant autorisé" else "⚠️ Bouton STOP flottant non autorisé (l'arrêt reste possible via la notification)") + "\n" +
             (if (run) "✅ Bot en marche" else "⏸ Bot arrêté")
         start.isEnabled = acc && !run
         stop.isEnabled = run

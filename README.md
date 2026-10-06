@@ -1,21 +1,28 @@
-# Triche
+# Triche Colis
 
-Un bot pour le jeu « garde la balle en l'air entre les piliers » (balle carrée blanche, piliers roses).
-L'app Android regarde l'écran, repère la balle et le trou du prochain pilier, et touche l'écran
-à ta place au bon moment.
+Bot Android pour **Parcel Panic** (trier les colis par couleur) : l'app regarde l'écran, lit la couleur du
+colis le plus bas du tapis et glisse dans le bon sens, bien plus vite qu'un humain.
+
+| Couleur | Glissement |
+|---|---|
+| rouge | ← gauche |
+| jaune | ↑ haut |
+| bleu | → droite |
+
+Un bouton flottant **■ STOP n** (déplaçable, `n` = colis triés) permet de s'arrêter au score voulu ;
+**▶ GO** pour reprendre.
 
 ## Comment ça marche
 
-- **Vue** : capture d'écran (MediaProjection) → lecture directe des pixels : bandes roses plafond/sol,
-  balle blanche, piliers roses (et leur trou). Le chiffre du score, dessiné par-dessus les piliers, est ignoré.
-- **Cerveau** (`app/src/main/kotlin/fr/triche/bot/logic/`) : physique mesurée sur ta vidéo
-  (gravité ≈ 3,4 L/s², saut ≈ −0,6 L/s, défilement ≈ 0,48 L/s, L = largeur de l'écran).
-  Il vise le milieu du trou du prochain pilier et touche quand la balle, prédite après la latence,
-  passe sous la cible. La latence (capture + injection) est apprise en direct.
-- **Mains** : un service d'accessibilité injecte les touchers (`dispatchGesture`).
+- **Vue** : capture d'écran (MediaProjection) → repère le tapis (deux rails jaunes) puis les colis par leur
+  couleur (teinte/saturation mesurées sur ta vidéo).
+- **Cerveau** (`app/src/main/kotlin/fr/triche/colis/logic/`) : trie toujours le colis le plus bas, seulement
+  si sa couleur est nette et stable. Il ne confond jamais un colis qui s'envoie vers sa boîte avec un colis du
+  tapis (un seul mauvais geste termine la partie) et ne retrie pas le même colis.
+- **Mains** : un service d'accessibilité injecte les glissements (`dispatchGesture`).
 
-`sim/` contient les tests exécutés à chaque build : détection sur de vraies images de la vidéo et
-simulation complète du jeu (latences de 20 à 160 ms, trous de 300 px, vitesse ×1,4, capture 30 fps).
+`sim/` contient les tests exécutés à chaque build : détection sur de vraies images de la vidéo, et un mini-jeu
+simulé (latences 10–200 ms, tapis rapide, entrée bloquée pendant l'animation, capture 30 fps).
 
 ## Compilation automatique + envoi sur Discord
 
@@ -29,11 +36,10 @@ Chaque push lance `.github/workflows/build-apk.yml` : tests → APK → envoi su
 
 ## Installation et utilisation
 
-1. Ouvre l'APK reçu sur Discord et installe-le (autoriser les sources inconnues).
-2. Ouvre **Triche** → *Activer le service d'accessibilité* → active « Triche ».
+1. Installe l'APK (autoriser les sources inconnues).
+2. Ouvre **Triche Colis** → *Activer le service d'accessibilité* → active « Triche Colis ».
    Android 13+ : si c'est grisé, *Infos de l'appli* → ⋮ → *Autoriser les paramètres restreints*.
-3. *Démarrer le bot* → accepter la capture d'écran.
-4. Ouvre le jeu, touche l'écran une fois pour lancer la partie : le bot prend le relais.
-5. Arrêt : bouton *Arrêter* dans la notification.
-
-Le bot ne touche que pendant une partie détectée ; relancer une partie reste manuel.
+3. *Autoriser le bouton STOP flottant*.
+4. *Démarrer le bot* → accepter la capture d'écran.
+5. Ouvre le jeu et lance la partie : dès que le tapis est visible, le bot trie.
+6. Appuie sur le bouton rouge au score voulu. Arrêt complet : bouton *Arrêter* de la notification.

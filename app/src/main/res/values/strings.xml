@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Triche</string>
-    <string name="accessibility_description">Permet à Triche de toucher l\'écran à ta place pendant le jeu.</string>
+    <string name="app_name">Triche Colis</string>
+    <string name="accessibility_description">Permet à Triche Colis de glisser sur l\'écran à ta place pendant le jeu.</string>
 </resources>

@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-bot")
+base.archivesName.set("triche-colis")
 
 android {
-    namespace = "fr.triche.bot"
+    namespace = "fr.triche.colis"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.bot"
+        applicationId = "fr.triche.colis"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
