@@ -8,7 +8,7 @@ repositories {
 
 // La logique du bot (sans dépendance Android) est testée ici, telle qu'elle est embarquée dans l'APK.
 sourceSets.main {
-    kotlin.srcDir("../app/src/main/kotlin/fr/triche/colis/logic")
+    kotlin.srcDir("../app/src/main/kotlin/fr/triche/maths/logic")
 }
 
 dependencies {

@@ -1,32 +1,26 @@
-import fr.triche.colis.logic.Detector
-import fr.triche.colis.logic.Sorter
+import fr.triche.maths.logic.Mode
+import fr.triche.maths.logic.QuizBot
+import fr.triche.maths.logic.QuizReader
+import fr.triche.maths.logic.Settings
+import fr.triche.maths.logic.TemplateData
 import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.Test
 
-/** Rejoue une vidéo extraite en PNG (dossier donné par PARCEL_FRAMES) ; ignoré sinon. */
+/** Rejoue la vidéo extraite en PNG (dossier donné par QUIZ_FRAMES) ; ignoré sinon. */
 class ReplayTest {
     @Test fun rejoue() {
-        val dir = System.getenv("PARCEL_FRAMES")?.let { File(it) } ?: return
+        val dir = System.getenv("QUIZ_FRAMES")?.let { File(it) } ?: return
         val files = dir.listFiles { f -> f.name.endsWith(".png") }!!.sortedBy { it.name }
-        val det = Detector()
-        val sorter = Sorter()
-        var inGame = false
-        var distinct = 0
-        var retries = 0
+        val bot = QuizBot(QuizReader(TemplateData.bank()), Settings(8.5, -0.08, Mode.NATURAL), java.util.Random(7))
         val sb = StringBuilder()
-        var prevCount = 0
+        var lastStatus = ""
         for ((i, f) in files.withIndex()) {
-            val scene = det.detect(DetectorTest.frameOf(ImageIO.read(f)))
-            if (scene != null && !inGame) { inGame = true; sorter.reset(); prevCount = 0; sb.append("== début de partie à ${"%.2f".format(i / 60.0)} s\n") }
-            if (scene == null && inGame) { inGame = false; sb.append("== fin de partie à ${"%.2f".format(i / 60.0)} s (${sorter.count} colis)\n") }
-            val d = sorter.step(i / 60.0, scene)
-            if (d != null) {
-                val front = scene!!.parcels.maxByOrNull { it.bottom }!!
-                if (sorter.count > prevCount) { distinct++; prevCount = sorter.count } else retries++
-                sb.append("  t=%.2f %-5s c%d bas=%d n=%d %s\n".format(i / 60.0, d, front.color, front.bottom, sorter.count, scene.parcels.joinToString(",") { "c${it.color}:${it.bottom}" }))
-            }
+            val t = i / 60.0
+            val d = bot.step(t, Support.load(f))
+            if (d != null) sb.append("  t=%.2f décision: bouton %d (question %d) à t=%.2f\n".format(t, d.button + 1, d.question, d.tapAt))
+            if (bot.status != lastStatus) { lastStatus = bot.status; sb.append("  t=%.2f [%s]\n".format(t, lastStatus)) }
+            bot.takeResult()?.let { sb.append("  t=%.2f RÉSULTAT mesuré=%.2f cible=%.2f\n".format(t, it.measured, it.target)) }
         }
-        println("REPLAY colis distincts=$distinct relances=$retries\n$sb")
+        println("REPLAY\n$sb")
     }
 }

@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-colis")
+base.archivesName.set("triche-maths")
 
 android {
-    namespace = "fr.triche.colis"
+    namespace = "fr.triche.maths"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.colis"
+        applicationId = "fr.triche.maths"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
