@@ -30,6 +30,9 @@ class Pilot(private val width: Int, var settings: PilotSettings = PilotSettings(
         const val SPIKE_HALF = 40.5     // demi-hauteur d'un pic (37,5) + 3 px de marge
         const val PLAN_HORIZON = 90.0   // loin du mur, on vise un point virtuel à cette distance
         const val MIN_TAP_GAP = 2.0
+        const val SAFE_BAND_Y = 1000.0   // la bande en dessous est visée en priorité : aucun pic n'y est descendu dans la vidéo
+        const val CEILING_Y = 640.0      // au-dessus, on ne tape jamais : la balle redescend d'elle-même
+        const val MIN_TAP_SPACING = 4.0  // ticks mini entre deux taps (anti-emballement)
     }
 
     var status = "En attente d'une partie…"
@@ -89,6 +92,8 @@ class Pilot(private val width: Int, var settings: PilotSettings = PilotSettings(
     private var half = HALF0
     private var ghostK = 1.0
     private var lastYm = 0.0
+    private var prevYm = 0.0
+    private var prevTick = 0.0
 
     // ---- physique des sauts apprise ----
     private var gRef = G_REF
@@ -202,6 +207,8 @@ class Pilot(private val width: Int, var settings: PilotSettings = PilotSettings(
             }
             // un tap perdu ne reste pas en attente éternellement
             while (pendingIssue.isNotEmpty() && tick > pendingIssue[0] + 3 * latencyTicks + 3) pendingIssue.removeAt(0)
+            prevYm = lastYm
+            prevTick = lastTick
             lastTick = tick
             lastYm = ym
         }
@@ -268,7 +275,12 @@ class Pilot(private val width: Int, var settings: PilotSettings = PilotSettings(
         System.arraycopy(dbgArrHistory, 1, dbgArrHistory, 0, 39); dbgArrHistory[39] = arrival
         dbgGapLo = gap.lo; dbgGapHi = gap.hi; dbgArrival = arrival; dbgPredY = plan.arrivalY; dbgCost = plan.cost; dbgNextTap = plan.firstTap
         status = "Rebonds : $bounces • vitesse %.1f px/tick • trou %.0f–%.0f • taps %d".format(vx, gap.lo, gap.hi, tapsSent)
-        if (plan.tapNow && tick - lastIssue >= MIN_TAP_GAP && pendingIssue.isEmpty()) {
+        // Garde-fous indépendants du modèle : jamais de tap en haut de l'écran, ni si la balle monte déjà vite,
+        // ni trop vite après le précédent (un tap perdu ou mal vu ne doit pas emballer la balle vers le plafond).
+        val rising = (lastYm - prevYm) / max(0.3, lastTick - prevTick) < -0.5 * d.j
+        val tooHigh = y < CEILING_Y && v < 0.5 * d.j
+        val tooSoon = tick - lastIssue < MIN_TAP_SPACING
+        if (plan.tapNow && !rising && !tooHigh && !tooSoon && tick - lastIssue >= MIN_TAP_GAP && pendingIssue.isEmpty()) {
             lastIssue = tick
             pendingIssue.add(tick)
             tapsSent++
