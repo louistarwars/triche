@@ -1,4 +1,4 @@
-package fr.triche.maths.logic
+package fr.triche.dangerwall.logic
 
 import java.nio.ByteBuffer
 
@@ -17,12 +17,6 @@ class Frame(
             ((buf.get(o + 1).toInt() and 0xFF) shl 8) or
             (buf.get(o + 2).toInt() and 0xFF)
     }
-}
-
-/** Rectangle en pixels, fin exclue. */
-class Rect(val x0: Int, val y0: Int, val x1: Int, val y1: Int) {
-    val w get() = x1 - x0
-    val h get() = y1 - y0
 }
 
 fun red(rgb: Int) = (rgb shr 16) and 0xFF

@@ -1,4 +1,4 @@
-package fr.triche.maths
+package fr.triche.dangerwall
 
 import android.app.Activity
 import android.app.Notification
@@ -23,24 +23,23 @@ import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
-import fr.triche.maths.logic.Decision
-import fr.triche.maths.logic.Frame
-import fr.triche.maths.logic.QuizBot
-import fr.triche.maths.logic.QuizReader
-import fr.triche.maths.logic.TemplateData
+import fr.triche.dangerwall.logic.Ball
+import fr.triche.dangerwall.logic.Detector
+import fr.triche.dangerwall.logic.Frame
+import fr.triche.dangerwall.logic.Pilot
 
 /**
- * Regarde l'écran (MediaProjection), lit et résout les équations, et touche la bonne réponse au moment prévu
- * pour que le chrono du jeu s'arrête au temps visé.
+ * Regarde l'écran (MediaProjection), suit la balle et les pics, et touche l'écran au moment calculé
+ * par le pilote pour passer entre les pics à chaque rebond.
  */
 class BotService : Service() {
     companion object {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
-        const val ACTION_STOP = "fr.triche.maths.STOP"
-        private const val CHANNEL = "triche_maths"
+        const val ACTION_STOP = "fr.triche.dangerwall.STOP"
+        private const val CHANNEL = "triche_dangerwall"
         private const val NOTIF_ID = 1
-        private const val TAG = "TricheMaths"
+        private const val TAG = "TricheDangerwall"
         private const val MAX_WIDTH = 720
 
         @Volatile
@@ -52,15 +51,19 @@ class BotService : Service() {
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var thread: HandlerThread? = null
-    private var handler: Handler? = null
 
     private lateinit var prefs: Prefs
-    private lateinit var bot: QuizBot
+    private val detector = Detector()
+    private lateinit var pilot: Pilot
 
     private var realW = 0
     private var realH = 0
+    private var scale = 1f
+    private var lastBall: Ball? = null
+    private var inGame = false
     private var lastNotif = 0L
     private var lastStatus = ""
+    private var maxBounces = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -84,8 +87,9 @@ class BotService : Service() {
         }
 
         prefs = Prefs(this)
-        bot = QuizBot(QuizReader(TemplateData.bank()), prefs.settings())
-
+        val (w0, _) = realSize()
+        captureWidth = if (w0 > MAX_WIDTH) MAX_WIDTH else w0
+        pilot = Pilot(captureWidth, prefs.settings()) // avant la capture : les images arrivent dès qu'elle démarre
         startAsForeground("Démarrage…")
         try {
             startCapture(code, data)
@@ -101,7 +105,7 @@ class BotService : Service() {
 
     private fun startAsForeground(text: String) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Triche Maths", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Triche Dangerwall", NotificationManager.IMPORTANCE_LOW))
         val notif = buildNotification(text)
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
@@ -120,7 +124,7 @@ class BotService : Service() {
         ).build()
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Triche Maths")
+            .setContentTitle("Triche Dangerwall")
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setOngoing(true)
@@ -128,16 +132,18 @@ class BotService : Service() {
             .build()
     }
 
-    private fun updateNotification(force: Boolean = false) {
-        val text = bot.status
+    private fun updateNotification() {
+        val text = pilot.status
         val now = SystemClock.elapsedRealtime()
-        if (!force && (text == lastStatus || now - lastNotif < 700)) return
+        if (text == lastStatus || now - lastNotif < 800) return
         lastNotif = now
         lastStatus = text
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
     }
 
     // ---------- capture ----------
+
+    private var captureWidth = MAX_WIDTH
 
     private fun realSize(): Pair<Int, Int> {
         val wm = getSystemService(WindowManager::class.java)
@@ -155,14 +161,14 @@ class BotService : Service() {
         val (w, h) = realSize()
         realW = w
         realH = h
-        val scale = if (w > MAX_WIDTH) MAX_WIDTH.toFloat() / w else 1f
+        scale = if (w > MAX_WIDTH) MAX_WIDTH.toFloat() / w else 1f
         val cw = (w * scale).toInt()
         val ch = (h * scale).toInt()
+        captureWidth = cw
 
-        val t = HandlerThread("triche-capture").also { it.start() }
+        val t = HandlerThread("triche-capture", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).also { it.start() }
         thread = t
-        val hd = Handler(t.looper)
-        handler = hd
+        val handler = Handler(t.looper)
 
         val mp = getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, data)
         projection = mp
@@ -171,28 +177,41 @@ class BotService : Service() {
             override fun onStop() {
                 stopSelf()
             }
-        }, hd)
+        }, handler)
 
         val r = ImageReader.newInstance(cw, ch, PixelFormat.RGBA_8888, 2)
         reader = r
-        r.setOnImageAvailableListener({ onFrame(it) }, hd)
+        r.setOnImageAvailableListener({ onFrame(it) }, handler)
         display = mp.createVirtualDisplay(
-            "triche-maths", cw, ch, resources.displayMetrics.densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, hd,
+            "triche-dangerwall", cw, ch, resources.displayMetrics.densityDpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, handler,
         )
     }
-
-    private fun now() = System.nanoTime() / 1e9
 
     private fun onFrame(r: ImageReader) {
         val image = r.acquireLatestImage() ?: return
         try {
             val plane = image.planes[0]
             val frame = Frame(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
-            val decision = bot.step(now(), frame)
-            if (decision != null) schedule(decision)
-            val result = bot.takeResult()
-            if (result != null) calibrate(result.measured, result.target)
+            val t = System.nanoTime() / 1e9
+            val scene = detector.detect(frame, lastBall)
+            lastBall = scene?.ball
+            if (scene == null) {
+                if (inGame) {
+                    inGame = false
+                    pilot.reset()
+                    prefs.lastResult = "Dernière partie : $maxBounces points"
+                }
+                return
+            }
+            if (!inGame) {
+                inGame = true
+                pilot.reset()
+                pilot.settings = prefs.settings()
+                maxBounces = 0
+            }
+            if (pilot.step(t, scene)) tap()
+            maxBounces = maxOf(maxBounces, pilot.bounces)
             updateNotification()
         } catch (e: Exception) {
             Log.e(TAG, "Erreur d'analyse", e)
@@ -201,43 +220,13 @@ class BotService : Service() {
         }
     }
 
-    /** Programme le tap à l'instant voulu (l'écran est souvent figé pendant l'attente : pas d'image pour nous réveiller). */
-    private fun schedule(d: Decision) {
-        val delayMs = ((d.tapAt - now()) * 1000).toLong().coerceAtLeast(0)
-        handler?.postDelayed({ fire(d) }, delayMs)
-    }
-
-    private fun fire(d: Decision) {
-        if (!running || bot.currentDots != d.dots) return // la question a changé entre-temps
-        val svc = TapService.instance
-        if (svc == null) {
-            Log.w(TAG, "Service d'accessibilité inactif")
-            return
-        }
-        val c = fr.triche.maths.logic.QuizReader.BUTTON_CENTERS[d.button]
-        val x = c[0] / fr.triche.maths.logic.QuizReader.REF_W * realW
-        val y = c[1] / fr.triche.maths.logic.QuizReader.REF_H * realH
-        bot.onTapFired(now())
-        svc.tap(x, y)
-    }
-
-    /** Après chaque partie, corrige le décalage pour que le prochain temps tombe plus près de la cible. */
-    private fun calibrate(measured: Double, target: Double) {
-        val err = measured - target
-        var line = "Dernière partie : %.2f s (visé %.2f s)".format(measured, target)
-        if (prefs.autoCalibrate && Math.abs(err) < 1.0) {
-            val newOffset = (prefs.offsetMs - 0.6 * err * 1000).toInt().coerceIn(-500, 500)
-            line += " → réglage %+d ms".format(newOffset)
-            prefs.offsetMs = newOffset
-            bot.settings = prefs.settings()
-        }
-        prefs.lastResult = line
-        updateNotification(force = true)
+    private fun tap() {
+        val svc = TapService.instance ?: return
+        svc.tap(realW * 0.5f, realH * 0.62f)
     }
 
     override fun onDestroy() {
         running = false
-        handler?.removeCallbacksAndMessages(null)
         reader?.setOnImageAvailableListener(null, null)
         display?.release()
         reader?.close()

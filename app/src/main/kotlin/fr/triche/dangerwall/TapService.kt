@@ -1,4 +1,4 @@
-package fr.triche.maths
+package fr.triche.dangerwall
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -32,10 +32,11 @@ class TapService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
+    /** Un toucher très bref (8 ms) : le jeu saute dès l'appui. */
     fun tap(x: Float, y: Float): Boolean {
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 30))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 8))
             .build()
         return dispatchGesture(gesture, null, null)
     }

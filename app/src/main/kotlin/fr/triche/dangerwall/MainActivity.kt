@@ -1,4 +1,4 @@
-package fr.triche.maths
+package fr.triche.dangerwall
 
 import android.Manifest
 import android.app.Activity
@@ -9,18 +9,11 @@ import android.os.Bundle
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
-import android.view.ViewGroup
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import fr.triche.maths.logic.Mode
-import fr.triche.maths.logic.Planner
 
 class MainActivity : Activity() {
     private companion object {
@@ -30,11 +23,8 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var status: TextView
-    private lateinit var target: EditText
-    private lateinit var offset: EditText
-    private lateinit var natural: RadioButton
-    private lateinit var fast: RadioButton
-    private lateinit var auto: CheckBox
+    private lateinit var margin: EditText
+    private lateinit var stopAt: EditText
     private lateinit var start: Button
     private lateinit var stop: Button
 
@@ -54,47 +44,32 @@ class MainActivity : Activity() {
             setPadding(pad, pad * 2, pad, pad)
         }
         col.addView(TextView(this).apply {
-            text = "Triche Maths"
+            text = "Triche Dangerwall"
             textSize = 28f
             gravity = Gravity.CENTER_HORIZONTAL
         })
         status = label("", 15f, pad / 2)
         col.addView(status)
 
-        col.addView(label("Temps final visé (en secondes)", 16f, pad))
-        target = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText("%.2f".format(prefs.targetSec).replace(',', '.'))
-            textSize = 24f
+        col.addView(label("Marge de sécurité (px)", 16f, pad))
+        margin = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(prefs.margin.toString())
         }
-        col.addView(target)
-        col.addView(label("Minimum possible : %.1f s. Le chrono du jeu va de l'affichage de la 1re équation à la dernière réponse.".format(Planner.minTotal()), 12f))
+        col.addView(margin)
+        col.addView(label("Plus grande = plus prudent (la balle passe plus au milieu des trous). 26 par défaut ; baisse à 15 si le bot tourne mal sur des trous étroits.", 12f))
 
-        col.addView(label("Répartition du temps", 16f, pad))
-        val group = RadioGroup(this)
-        natural = RadioButton(this).apply { text = "Naturelle : temps de réflexion variés sur les 5 questions"; id = 1001 }
-        fast = RadioButton(this).apply { text = "Rapide puis attente : 4 réponses très vite, puis on attend avant la dernière"; id = 1002 }
-        group.addView(natural)
-        group.addView(fast)
-        group.check(if (prefs.mode == Mode.FAST_THEN_WAIT) 1002 else 1001)
-        col.addView(group)
-
-        col.addView(label("Réglage fin (ms, négatif = taper plus tôt)", 16f, pad / 2))
-        offset = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED
-            setText(prefs.offsetMs.toString())
+        col.addView(label("S'arrêter après N points (0 = jamais)", 16f, pad / 2))
+        stopAt = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(prefs.stopAt.toString())
         }
-        col.addView(offset)
-        auto = CheckBox(this).apply {
-            text = "Corriger automatiquement après chaque partie (lit le temps affiché à la fin)"
-            isChecked = prefs.autoCalibrate
-        }
-        col.addView(auto)
+        col.addView(stopAt)
 
         col.addView(Button(this).apply {
             text = "1. Activer le service d'accessibilité"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = pad })
+        })
         start = Button(this).apply {
             text = "2. Démarrer le bot"
             setOnClickListener { saveAndAskCapture() }
@@ -111,11 +86,10 @@ class MainActivity : Activity() {
 
         col.addView(label(
             "Mode d'emploi\n" +
-                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche Maths ». " +
+                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche Dangerwall ». " +
                 "Si Android l'interdit (réglage restreint), ouvre Infos de l'appli > ⋮ > « Autoriser les paramètres restreints ».\n" +
                 "• Étape 2 : « Démarrer le bot » et accepte la capture d'écran.\n" +
-                "• Ouvre Quick Maths et lance la partie : le bot lit chaque équation, trouve la bonne réponse " +
-                "et la touche au bon moment pour finir pile au temps visé.\n" +
+                "• Ouvre Dangerwall, touche l'écran une fois pour lancer la partie : le bot prend le relais dès que la balle bouge.\n" +
                 "• Arrêt : bouton « Arrêter » de la notification.",
             14f, pad,
         ))
@@ -126,7 +100,6 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        offset.setText(prefs.offsetMs.toString()) // peut avoir été corrigé par la dernière partie
         refresh()
     }
 
@@ -140,27 +113,9 @@ class MainActivity : Activity() {
         stop.isEnabled = run
     }
 
-    private fun saveSettings(): Boolean {
-        val t = target.text.toString().replace(',', '.').toFloatOrNull()
-        if (t == null || t <= 0f) {
-            Toast.makeText(this, "Temps visé invalide", Toast.LENGTH_SHORT).show()
-            return false
-        }
-        var v = t
-        if (v < Planner.minTotal()) {
-            v = Planner.minTotal().toFloat()
-            target.setText("%.2f".format(v).replace(',', '.'))
-            Toast.makeText(this, "Trop court : minimum %.1f s".format(v), Toast.LENGTH_LONG).show()
-        }
-        prefs.targetSec = v
-        prefs.offsetMs = offset.text.toString().toIntOrNull() ?: prefs.offsetMs
-        prefs.mode = if (fast.isChecked) Mode.FAST_THEN_WAIT else Mode.NATURAL
-        prefs.autoCalibrate = auto.isChecked
-        return true
-    }
-
     private fun saveAndAskCapture() {
-        if (!saveSettings()) return
+        prefs.margin = (margin.text.toString().toIntOrNull() ?: prefs.margin).coerceIn(4, 60)
+        prefs.stopAt = (stopAt.text.toString().toIntOrNull() ?: 0).coerceAtLeast(0)
         val mpm = getSystemService(MediaProjectionManager::class.java)
         @Suppress("DEPRECATION")
         startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE)

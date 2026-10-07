@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Triche Maths</string>
-    <string name="accessibility_description">Permet à Triche Maths de toucher l\'écran à ta place pendant le jeu.</string>
+    <string name="app_name">Triche Dangerwall</string>
+    <string name="accessibility_description">Permet à Triche Dangerwall de toucher l\'écran à ta place pendant le jeu.</string>
 </resources>

@@ -27,12 +27,12 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Préparer l'APK
-        run: cp app/build/outputs/apk/debug/triche-maths-debug.apk triche-maths.apk
+        run: cp app/build/outputs/apk/debug/triche-dangerwall-debug.apk triche-dangerwall.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: triche-maths
-          path: triche-maths.apk
+          name: triche-dangerwall
+          path: triche-dangerwall.apk
 
       - name: Envoyer l'APK sur Discord
         env:
@@ -43,6 +43,6 @@ jobs:
             exit 0
           fi
           curl -sS --fail \
-            -F "payload_json={\"content\":\"Nouvel APK Triche Maths (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
-            -F "file=@triche-maths.apk" \
+            -F "payload_json={\"content\":\"Nouvel APK Triche Dangerwall (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
+            -F "file=@triche-dangerwall.apk" \
             "$DISCORD_WEBHOOK_URL"

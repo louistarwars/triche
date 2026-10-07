@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-maths")
+base.archivesName.set("triche-dangerwall")
 
 android {
-    namespace = "fr.triche.maths"
+    namespace = "fr.triche.dangerwall"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.maths"
+        applicationId = "fr.triche.dangerwall"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
