@@ -142,12 +142,13 @@ class BotService : Service() {
     private fun updateNotification() {
         val text = bot.status
         val now = SystemClock.elapsedRealtime()
-        if (now - lastSave > 5000) {
+        if (now - lastSave > 45000) {
             lastSave = now
             saveLatency()
-            Journal.save(this)
+            val ctx = applicationContext
+            Thread { Journal.save(ctx) }.also { it.priority = Thread.MIN_PRIORITY; it.isDaemon = true }.start()
         }
-        if (text == lastStatus || now - lastNotif < 800) return
+        if (text == lastStatus || now - lastNotif < 2500) return
         lastNotif = now
         lastStatus = text
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
@@ -211,20 +212,24 @@ class BotService : Service() {
     // L'heure d'une image = son horodatage système (régulier, à 60/s), recalé sur l'horloge de nanoTime par le plus petit
     // écart « arrivée − horodatage » observé : l'heure d'arrivée dans notre fil, elle, fluctue de plusieurs ms (file d'attente
     // d'analyse) et brouillait la mesure de la vitesse du bloc.
-    private val offs = LongArray(300)
-    private var offN = 0
     private var offMin = Long.MAX_VALUE
     private var lastTs = 0L
+    private var dMin = Long.MAX_VALUE
+    private var dMax = 0L
+    private var dSum = 0L
+    private var dN = 0
 
     private fun frameTime(ts: Long, arrival: Long): Double {
         if (ts <= 0L || ts <= lastTs) return arrival / 1e9
         lastTs = ts
         val o = arrival - ts
-        offs[offN % offs.size] = o
-        offN++
-        var m = Long.MAX_VALUE
-        for (i in 0 until minOf(offN, offs.size)) if (offs[i] < m) m = offs[i]
-        offMin = m
+        // minimum de l'écart « arrivée − horodatage » depuis le début, avec une très lente remontée (5 µs par image) :
+        // une fenêtre courte suivait les retards de la file d'analyse et décalait peu à peu l'heure de toutes les images
+        offMin = if (offMin == Long.MAX_VALUE) o else minOf(o, offMin + 5_000L)
+        dMin = minOf(dMin, o - offMin)
+        dMax = maxOf(dMax, o - offMin)
+        dSum += o - offMin
+        dN++
         return (ts + offMin) / 1e9
     }
 
@@ -246,7 +251,9 @@ class BotService : Service() {
             frames++
             segTime += now() - tSeg
             if (t - lastStat > 5.0) {
-                if (lastStat > 0) Journal.add("IMAGES %.0f/s, analyse moyenne %.1f ms".format(frames / (t - lastStat), 1000 * segTime / max(1, frames)))
+                if (lastStat > 0) Journal.add("IMAGES %.0f/s, analyse moyenne %.1f ms, retard d'arrivée des images sur leur horodatage : moyen %.1f ms, max %.1f ms".format(
+                    frames / (t - lastStat), 1000 * segTime / max(1, frames), dSum / 1e6 / max(1, dN), dMax / 1e6))
+                dSum = 0; dN = 0; dMax = 0
                 lastStat = t
                 frames = 0
                 segTime = 0.0

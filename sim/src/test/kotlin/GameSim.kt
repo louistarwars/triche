@@ -24,6 +24,8 @@ class GameSim(
     private val speedScale: Double = 1.0,
     /** Un élément de décor immobile, de couleur vive, plus « gros » que la tour (comme le parasite vu sur téléphone). */
     private val decoy: Boolean = false,
+    /** Dérive de la latence (s ajoutées par niveau) : un téléphone qui chauffe répond de plus en plus tard. */
+    private val latencyDrift: Double = 0.0,
 ) {
     private val rnd = java.util.Random(seed)
 
@@ -116,7 +118,7 @@ class GameSim(
 
     fun tap(t: Double) {
         if (!s.frozenAt.isNaN() || s.over) return
-        pendingTapAt = t + inputLatency + (rnd.nextDouble() * 2 - 1) * inputJitter
+        pendingTapAt = t + inputLatency + latencyDrift * s.level + (rnd.nextDouble() * 2 - 1) * inputJitter
     }
 
     private var respawnAt = Double.NaN

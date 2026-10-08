@@ -27,7 +27,7 @@ class Comp(
  * les côtés sont plus sombres) regroupés tant que la couleur reste la même (±4) ; le socle gris de départ
  * est accepté aussi. Deux blocs voisins mais de couleurs différentes (≥ 9 d'écart) restent donc séparés.
  */
-class Segmenter(val step: Int = 2, private val roiTop: Double = 0.30, private val roiBottom: Double = 0.72) {
+class Segmenter(val step: Int = 3, private val roiTop: Double = 0.30, private val roiBottom: Double = 0.72) {
     private var gw = 0
     private var gh = 0
     private var parent = IntArray(0)

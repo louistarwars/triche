@@ -20,9 +20,10 @@ class BotSimTest {
         speedScale: Double = 1.0,
         dropFrames: Double = 0.0,
         decoy: Boolean = false,
+        drift: Double = 0.0,
         frameJitter: Double = 0.001,
     ): Result {
-        val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale, decoy = decoy)
+        val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale, decoy = decoy, latencyDrift = drift)
         val bot = StackBot(720, 1594, settings)
         if (verbose) bot.log = { println(it) }
         var tdbg = 0.0
@@ -140,5 +141,15 @@ class BotSimTest {
         report("décor immobile de 65 px", r)
         assertTrue(r.levels >= 35 && !r.over, "avec décor : ${r.levels}")
         assertTrue(r.errors.take(3).all { abs(it) < 120 }, "premiers écarts ${r.errors.take(3)}")
+    }
+
+    @Test
+    fun latenceQuiDerive() {
+        // +0,6 ms par niveau (60 niveaux : +36 ms) : la latence apprise doit suivre
+        val r = play(31, StackSettings(), drift = 0.0006, maxLevels = 60, jitter = 0.004)
+        report("latence qui dérive de +0,6 ms/niveau", r)
+        val late = r.errors.drop(20)
+        println("   erreurs après le niveau 20 : " + late.joinToString { "%.0f".format(it) })
+        assertTrue(late.count { abs(it) > 8 } <= late.size / 3, "trop d'erreurs avec dérive : $late")
     }
 }
