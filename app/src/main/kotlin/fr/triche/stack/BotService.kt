@@ -259,17 +259,36 @@ class BotService : Service() {
         }
     }
 
+    @Volatile
+    private var targetT = Double.NaN
+    private val spinning = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Part ~25 ms avant l'heure visée puis attend « à vif » : un fil qui dort 150 ms se réveille avec 10 à 15 ms de retard
+     * (économie d'énergie du processeur), ce qui décalait les blocs de 5 px et plus.
+     */
     private val tapRunnable = Runnable {
+        spinning.set(true)
+        var target = targetT
+        val startSpin = now()
+        while (!target.isNaN()) {
+            val t = now()
+            if (t >= target || t - startSpin > 0.2) break
+            Thread.onSpinWait()
+            target = targetT
+        }
         val t = now()
-        val lag = if (scheduledAt.isNaN()) 0.0 else (t - scheduledAt) * 1000
+        val lag = if (target.isNaN()) 0.0 else (t - target) * 1000
+        targetT = Double.NaN
         scheduledAt = Double.NaN
         val svc = TapService.instance
-        if (svc != null) {
+        if (svc != null && !target.isNaN()) {
             lastTap = t
             val ok = svc.tap(realW * 0.5f, realH * 0.70f)
             Journal.add("TOUCHER envoyé (retard sur l'heure prévue : %.0f ms, dispatchGesture=%s)".format(lag, ok))
             bot.onTapped(t)
-        } else Journal.add("TOUCHER impossible : service d'accessibilité inactif")
+        } else if (svc == null) Journal.add("TOUCHER impossible : service d'accessibilité inactif")
+        spinning.set(false)
     }
 
     /** Programme (ou déplace) le toucher à l'instant [tapAt] (horloge de nanoTime) ; null : plus de toucher prévu. */
@@ -279,16 +298,21 @@ class BotService : Service() {
         if (t - lastTap < 0.9) return                                    // un toucher vient de partir : on attend la pose
         if (tapAt == null) {
             // un toucher imminent n'est pas annulé par une image douteuse
-            if (!scheduledAt.isNaN() && scheduledAt - t > 0.06) {
+            if (!scheduledAt.isNaN() && scheduledAt - t > 0.06 && !spinning.get()) {
                 h.removeCallbacks(tapRunnable)
                 scheduledAt = Double.NaN
+                targetT = Double.NaN
             }
             return
         }
-        if (!scheduledAt.isNaN() && scheduledAt - t < 0.012) return   // trop tard pour le déplacer : il part
+        if (spinning.get()) {                                             // déjà en attente active : on déplace seulement l'heure
+            if (tapAt - t > 0.003) { targetT = tapAt; scheduledAt = tapAt }
+            return
+        }
         h.removeCallbacks(tapRunnable)
         scheduledAt = tapAt
-        h.postDelayed(tapRunnable, Math.round((tapAt - t) * 1000).coerceAtLeast(0))
+        targetT = tapAt
+        h.postDelayed(tapRunnable, Math.round((tapAt - t - 0.025) * 1000).coerceAtLeast(0))
     }
 
     override fun onDestroy() {

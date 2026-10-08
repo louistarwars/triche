@@ -54,6 +54,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
 
     private class Static(var r: Int, var g: Int, var b: Int, var cx: Double, var t0: Double)
     private val statics = ArrayList<Static>()
+    private val ignored = ArrayList<IntArray>()      // couleurs écartées (pas la tour)
 
     // ---- suivi du bloc mobile ----
     private val st = DoubleArray(MAXS)
@@ -93,6 +94,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     fun resetGame() {
         ct = null
         known.clear()
+        ignored.clear()
         statics.clear()
         hasTower = false
         ns = 0
@@ -247,6 +249,15 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         if (fit.rms < 3.0 && abs(v) > abs(vSeen) && abs(v) < 900) vSeen = v
         if (lastV == 0.0 || (abs(v) >= 0.7 * abs(lastV) && abs(v) > 150)) lastV = v
         if (abs(v) < 150 || fit.rms > 3.0 || !hasTower) return null
+        // le sommet de la tour a la taille du bloc : sinon c'est autre chose (un décor, un effet) qu'on a pris pour la tour
+        if (slabW > 0 && (tx1 - tx0) < 0.7 * slabW && abs(slabC.xmax - slabC.xmin) < 1.3 * slabW) {
+            log?.invoke("TOUR DOUTEUSE %.0f..%.0f (bloc de %.0f px) : j'oublie cette couleur".format(tx0, tx1, slabW))
+            ct?.let { ignored.add(it) }
+            ct = null
+            hasTower = false
+            frozenT = false
+            return null
+        }
         if (!tapTime.isNaN() && t - tapTime < 0.9) return null     // toucher déjà envoyé : on attend la pose
         val tc = (tx0 + tx1) / 2
         val csNow = fit.at(st[ns - 1])
@@ -337,6 +348,8 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     // ---- statiques : les blocs qui ne bougent pas sont des blocs posés, pas le bloc mobile ----
     private fun updateStatics(t: Double, comps: List<Comp>) {
         val seen = BooleanArray(statics.size)
+        var bestArea = 0
+        var bestComp: Comp? = null
         for (c in comps) {
             if (c.area < 1500 || c.gray) continue
             var m = -1
@@ -349,19 +362,19 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
             } else {
                 seen[m] = true
                 val s = statics[m]
-                if (t - s.t0 >= 0.5 && !isKnown(c)) {
-                    remember(c.r, c.g, c.b)
-                    if (ct == null) ct = intArrayOf(c.r, c.g, c.b)
+                if (t - s.t0 >= 0.5) {
+                    if (!isKnown(c)) remember(c.r, c.g, c.b)
+                    val ign = ignored.any { c.colorDist(it[0], it[1], it[2]) <= COLOR_TOL }
+                    if (!ign && c.area > bestArea) { bestArea = c.area; bestComp = c }
                 }
             }
         }
+        // en cours de partie : la tour est le plus grand bloc immobile
+        if (ct == null && bestComp != null) ct = intArrayOf(bestComp.r, bestComp.g, bestComp.b)
         // oublie les statiques qui ont bougé ou disparu
         var i = statics.size - 1
         while (i >= 0) {
-            if (i >= seen.size || !seen[i]) {
-                // nouvelles entrées ajoutées ce tour-ci sont à la fin : on les garde
-                if (i < seen.size) statics.removeAt(i)
-            }
+            if (i < seen.size && !seen[i]) statics.removeAt(i)
             i--
         }
     }

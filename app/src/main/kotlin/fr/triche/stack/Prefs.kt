@@ -34,10 +34,9 @@ class Prefs(ctx: Context) {
         latRight = 0.11f
     }
 
-    fun settings() = StackSettings(
-        targetScore = target,
-        endOnTarget = endOnTarget,
-        latencyLeft = latLeft.toDouble(),
-        latencyRight = latRight.toDouble(),
-    )
+    /** La latence est physiquement la même dans les deux sens : on repart de leur moyenne (valeurs apprises dans [0,03 ; 0,3] s). */
+    fun settings(): StackSettings {
+        val m = ((latLeft + latRight) / 2).toDouble().coerceIn(0.03, 0.3)
+        return StackSettings(targetScore = target, endOnTarget = endOnTarget, latencyLeft = m, latencyRight = m)
+    }
 }

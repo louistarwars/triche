@@ -19,9 +19,10 @@ class BotSimTest {
         startLevel: Int = 0,
         speedScale: Double = 1.0,
         dropFrames: Double = 0.0,
+        decoy: Boolean = false,
         frameJitter: Double = 0.001,
     ): Result {
-        val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale)
+        val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale, decoy = decoy)
         val bot = StackBot(720, 1594, settings)
         if (verbose) bot.log = { println(it) }
         var tdbg = 0.0
@@ -131,5 +132,13 @@ class BotSimTest {
             }
             println("gigue ±${(jit * 1000).toInt()} ms : |e|>5px sur ${"%.0f".format(100.0 * exceed / total)} % des blocs")
         }
+    }
+
+    @Test
+    fun decorImmobileNEstPasLaTour() {
+        val r = play(21, StackSettings(), startLevel = 12, decoy = true, maxLevels = 40, verbose = false)
+        report("décor immobile de 65 px", r)
+        assertTrue(r.levels >= 35 && !r.over, "avec décor : ${r.levels}")
+        assertTrue(r.errors.take(3).all { abs(it) < 120 }, "premiers écarts ${r.errors.take(3)}")
     }
 }

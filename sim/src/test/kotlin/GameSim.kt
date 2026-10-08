@@ -22,6 +22,8 @@ class GameSim(
     private val screenW: Int = 720,
     private val startLevel: Int = 0,
     private val speedScale: Double = 1.0,
+    /** Un élément de décor immobile, de couleur vive, plus « gros » que la tour (comme le parasite vu sur téléphone). */
+    private val decoy: Boolean = false,
 ) {
     private val rnd = java.util.Random(seed)
 
@@ -176,6 +178,7 @@ class GameSim(
         val tau = t - captureLag
         val st = at(tau)
         val out = ArrayList<Comp>()
+        if (decoy) out.add(Comp(272, 337, 600, 760, 99000, 254, 218, 87))
         val towerY = 700.0
         comp(st.tx0, st.tx0 + st.width, towerY, st.cT)?.let { out.add(it) }
         // bloc mobile : visible tant qu'il n'est pas posé (rogné) ; il apparaît à son point de départ
