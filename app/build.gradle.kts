@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-dangerwall")
+base.archivesName.set("triche-stack")
 
 android {
-    namespace = "fr.triche.dangerwall"
+    namespace = "fr.triche.stack"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.dangerwall"
+        applicationId = "fr.triche.stack"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

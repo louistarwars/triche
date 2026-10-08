@@ -1,4 +1,4 @@
-package fr.triche.dangerwall
+package fr.triche.stack
 
 import android.app.Activity
 import android.app.Notification
@@ -23,23 +23,22 @@ import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
-import fr.triche.dangerwall.logic.Ball
-import fr.triche.dangerwall.logic.Detector
-import fr.triche.dangerwall.logic.Frame
-import fr.triche.dangerwall.logic.Pilot
+import fr.triche.stack.logic.Frame
+import fr.triche.stack.logic.Segmenter
+import fr.triche.stack.logic.StackBot
 
 /**
- * Regarde l'écran (MediaProjection), suit la balle et les pics, et touche l'écran au moment calculé
- * par le pilote pour passer entre les pics à chaque rebond.
+ * Regarde l'écran (MediaProjection), suit le bloc qui glisse au-dessus de la tour et touche l'écran à l'instant
+ * calculé pour qu'il se pose pile sur la tour.
  */
 class BotService : Service() {
     companion object {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
-        const val ACTION_STOP = "fr.triche.dangerwall.STOP"
-        private const val CHANNEL = "triche_dangerwall"
+        const val ACTION_STOP = "fr.triche.stack.STOP"
+        private const val CHANNEL = "triche_stack"
         private const val NOTIF_ID = 1
-        private const val TAG = "TricheDangerwall"
+        private const val TAG = "TricheStack"
         private const val MAX_WIDTH = 720
 
         @Volatile
@@ -51,19 +50,22 @@ class BotService : Service() {
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var thread: HandlerThread? = null
+    private var tapThread: HandlerThread? = null
+    private var tapHandler: Handler? = null
 
     private lateinit var prefs: Prefs
-    private val detector = Detector()
-    private lateinit var pilot: Pilot
+    private val segmenter = Segmenter()
+    private lateinit var bot: StackBot
 
     private var realW = 0
     private var realH = 0
     private var scale = 1f
-    private var lastBall: Ball? = null
-    private var inGame = false
     private var lastNotif = 0L
     private var lastStatus = ""
-    private var maxBounces = 0
+    private var lastSave = 0L
+    private var scheduledAt = Double.NaN
+    @Volatile
+    private var lastTap = -10.0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -87,9 +89,9 @@ class BotService : Service() {
         }
 
         prefs = Prefs(this)
-        val (w0, _) = realSize()
-        captureWidth = if (w0 > MAX_WIDTH) MAX_WIDTH else w0
-        pilot = Pilot(captureWidth, prefs.settings()) // avant la capture : les images arrivent dès qu'elle démarre
+        val (w0, h0) = realSize()
+        val sc = if (w0 > MAX_WIDTH) MAX_WIDTH.toFloat() / w0 else 1f
+        bot = StackBot((w0 * sc).toInt(), (h0 * sc).toInt(), prefs.settings()) // avant la capture : les images arrivent dès qu'elle démarre
         startAsForeground("Démarrage…")
         try {
             startCapture(code, data)
@@ -105,7 +107,7 @@ class BotService : Service() {
 
     private fun startAsForeground(text: String) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Triche Dangerwall", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Triche Stack", NotificationManager.IMPORTANCE_LOW))
         val notif = buildNotification(text)
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
@@ -124,7 +126,7 @@ class BotService : Service() {
         ).build()
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("Triche Dangerwall")
+            .setContentTitle("Triche Stack")
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
             .setOngoing(true)
@@ -133,17 +135,24 @@ class BotService : Service() {
     }
 
     private fun updateNotification() {
-        val text = pilot.status
+        val text = bot.status
         val now = SystemClock.elapsedRealtime()
+        if (now - lastSave > 5000) {
+            lastSave = now
+            saveLatency()
+        }
         if (text == lastStatus || now - lastNotif < 800) return
         lastNotif = now
         lastStatus = text
         getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
     }
 
-    // ---------- capture ----------
+    private fun saveLatency() {
+        prefs.latLeft = bot.latLeft.toFloat()
+        prefs.latRight = bot.latRight.toFloat()
+    }
 
-    private var captureWidth = MAX_WIDTH
+    // ---------- capture ----------
 
     private fun realSize(): Pair<Int, Int> {
         val wm = getSystemService(WindowManager::class.java)
@@ -164,11 +173,14 @@ class BotService : Service() {
         scale = if (w > MAX_WIDTH) MAX_WIDTH.toFloat() / w else 1f
         val cw = (w * scale).toInt()
         val ch = (h * scale).toInt()
-        captureWidth = cw
 
         val t = HandlerThread("triche-capture", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).also { it.start() }
         thread = t
         val handler = Handler(t.looper)
+        // le toucher part depuis un autre fil : il ne doit pas attendre la fin de l'analyse d'une image
+        val tt = HandlerThread("triche-tap", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).also { it.start() }
+        tapThread = tt
+        tapHandler = Handler(tt.looper)
 
         val mp = getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, data)
         projection = mp
@@ -183,35 +195,21 @@ class BotService : Service() {
         reader = r
         r.setOnImageAvailableListener({ onFrame(it) }, handler)
         display = mp.createVirtualDisplay(
-            "triche-dangerwall", cw, ch, resources.displayMetrics.densityDpi,
+            "triche-stack", cw, ch, resources.displayMetrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, handler,
         )
     }
 
+    private fun now() = System.nanoTime() / 1e9
+
     private fun onFrame(r: ImageReader) {
         val image = r.acquireLatestImage() ?: return
         try {
+            val t = now()
             val plane = image.planes[0]
             val frame = Frame(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
-            val t = System.nanoTime() / 1e9
-            val scene = detector.detect(frame, lastBall)
-            lastBall = scene?.ball
-            if (scene == null) {
-                if (inGame) {
-                    inGame = false
-                    pilot.reset()
-                    prefs.lastResult = "Dernière partie : $maxBounces points"
-                }
-                return
-            }
-            if (!inGame) {
-                inGame = true
-                pilot.reset()
-                pilot.settings = prefs.settings()
-                maxBounces = 0
-            }
-            if (pilot.step(t, scene)) tap()
-            maxBounces = maxOf(maxBounces, pilot.bounces)
+            val tapAt = bot.onFrame(t, segmenter.segment(frame))
+            schedule(tapAt, t)
             updateNotification()
         } catch (e: Exception) {
             Log.e(TAG, "Erreur d'analyse", e)
@@ -220,22 +218,54 @@ class BotService : Service() {
         }
     }
 
-    private fun tap() {
-        val svc = TapService.instance ?: return
-        svc.tap(realW * 0.5f, realH * 0.62f)
+    private val tapRunnable = Runnable {
+        val t = now()
+        scheduledAt = Double.NaN
+        val svc = TapService.instance
+        if (svc != null) {
+            lastTap = t
+            svc.tap(realW * 0.5f, realH * 0.70f)
+            bot.onTapped(t)
+        }
+    }
+
+    /** Programme (ou déplace) le toucher à l'instant [tapAt] ; null : plus de toucher prévu. */
+    private fun schedule(tapAt: Double?, t: Double) {
+        val h = tapHandler ?: return
+        if (t - lastTap < 0.9) return                                    // un toucher vient de partir : on attend la pose
+        if (tapAt == null) {
+            // un toucher imminent n'est pas annulé par une image douteuse
+            if (!scheduledAt.isNaN() && scheduledAt - t > 0.06) {
+                h.removeCallbacks(tapRunnable)
+                scheduledAt = Double.NaN
+            }
+            return
+        }
+        if (!scheduledAt.isNaN() && scheduledAt - t < 0.012) return   // trop tard pour le déplacer : il part
+        h.removeCallbacks(tapRunnable)
+        scheduledAt = tapAt
+        h.postDelayed(tapRunnable, ((tapAt - t) * 1000).toLong().coerceAtLeast(0))
     }
 
     override fun onDestroy() {
         running = false
+        tapHandler?.removeCallbacksAndMessages(null)
         reader?.setOnImageAvailableListener(null, null)
         display?.release()
         reader?.close()
         projection?.stop()
+        if (::bot.isInitialized) {
+            saveLatency()
+            prefs.lastResult = "Dernière partie : ${bot.score} blocs (latence apprise ${(bot.latLeft * 1000).toInt()}/${(bot.latRight * 1000).toInt()} ms)"
+        }
         thread?.quitSafely()
+        tapThread?.quitSafely()
         display = null
         reader = null
         projection = null
         thread = null
+        tapThread = null
+        tapHandler = null
         super.onDestroy()
     }
 }

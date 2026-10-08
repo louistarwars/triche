@@ -1,4 +1,4 @@
-package fr.triche.dangerwall
+package fr.triche.stack
 
 import android.Manifest
 import android.app.Activity
@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -23,8 +24,8 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var status: TextView
-    private lateinit var margin: EditText
-    private lateinit var stopAt: EditText
+    private lateinit var target: EditText
+    private lateinit var endOnTarget: CheckBox
     private lateinit var start: Button
     private lateinit var stop: Button
 
@@ -44,27 +45,29 @@ class MainActivity : Activity() {
             setPadding(pad, pad * 2, pad, pad)
         }
         col.addView(TextView(this).apply {
-            text = "Triche Dangerwall"
+            text = "Triche Stack"
             textSize = 28f
             gravity = Gravity.CENTER_HORIZONTAL
         })
         status = label("", 15f, pad / 2)
         col.addView(status)
 
-        col.addView(label("Marge de sécurité (px)", 16f, pad))
-        margin = EditText(this).apply {
+        col.addView(label("Score visé (nombre de blocs, 0 = jamais s'arrêter)", 16f, pad))
+        target = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            setText(prefs.margin.toString())
+            setText(prefs.target.toString())
         }
-        col.addView(margin)
-        col.addView(label("Plus grande = plus prudent (la balle passe plus au milieu des trous). 26 par défaut ; baisse à 15 si le bot tourne mal sur des trous étroits.", 12f))
-
-        col.addView(label("S'arrêter après N points (0 = jamais)", 16f, pad / 2))
-        stopAt = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setText(prefs.stopAt.toString())
+        col.addView(target)
+        endOnTarget = CheckBox(this).apply {
+            text = "Une fois le score atteint, rater volontairement pour terminer la partie"
+            isChecked = prefs.endOnTarget
         }
-        col.addView(stopAt)
+        col.addView(endOnTarget)
+        col.addView(label(
+            "Décoché : le bot arrête simplement de jouer au score visé (la partie reste en cours). " +
+                "Coché : il fait tomber les blocs à côté ; selon la largeur restante, le score final peut dépasser la cible d'un ou deux blocs.",
+            12f,
+        ))
 
         col.addView(Button(this).apply {
             text = "1. Activer le service d'accessibilité"
@@ -83,13 +86,19 @@ class MainActivity : Activity() {
             }
         }
         col.addView(stop)
+        col.addView(Button(this).apply {
+            text = "Oublier la latence apprise"
+            setOnClickListener { prefs.resetLatency(); refresh() }
+        })
 
         col.addView(label(
             "Mode d'emploi\n" +
-                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche Dangerwall ». " +
+                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche Stack ». " +
                 "Si Android l'interdit (réglage restreint), ouvre Infos de l'appli > ⋮ > « Autoriser les paramètres restreints ».\n" +
                 "• Étape 2 : « Démarrer le bot » et accepte la capture d'écran.\n" +
-                "• Ouvre Dangerwall, touche l'écran une fois pour lancer la partie : le bot prend le relais dès que la balle bouge.\n" +
+                "• Ouvre le jeu et touche l'écran pour lancer la partie : le bot prend le relais dès qu'il voit le bloc glisser.\n" +
+                "• Les premiers blocs servent à calibrer le délai de réaction du téléphone (un peu de décalage au début est normal) ; " +
+                "il est mémorisé pour les parties suivantes.\n" +
                 "• Arrêt : bouton « Arrêter » de la notification.",
             14f, pad,
         ))
@@ -107,15 +116,16 @@ class MainActivity : Activity() {
         val acc = TapService.instance != null
         val run = BotService.running
         status.text = (if (acc) "✅ Service d'accessibilité actif" else "❌ Service d'accessibilité inactif") + "\n" +
-            (if (run) "✅ Bot en marche" else "⏸ Bot arrêté") +
+            (if (run) "✅ Bot en marche" else "⏸ Bot arrêté") + "\n" +
+            "Latence mémorisée : ${(prefs.latLeft * 1000).toInt()} / ${(prefs.latRight * 1000).toInt()} ms" +
             (prefs.lastResult.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: "")
         start.isEnabled = acc && !run
         stop.isEnabled = run
     }
 
     private fun saveAndAskCapture() {
-        prefs.margin = (margin.text.toString().toIntOrNull() ?: prefs.margin).coerceIn(4, 60)
-        prefs.stopAt = (stopAt.text.toString().toIntOrNull() ?: 0).coerceAtLeast(0)
+        prefs.target = (target.text.toString().toIntOrNull() ?: prefs.target).coerceAtLeast(0)
+        prefs.endOnTarget = endOnTarget.isChecked
         val mpm = getSystemService(MediaProjectionManager::class.java)
         @Suppress("DEPRECATION")
         startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE)

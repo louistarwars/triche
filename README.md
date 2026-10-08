@@ -1,41 +1,42 @@
-# Triche Dangerwall
+# Triche Stack
 
-Bot Android pour **Dangerwall** : un carré rebondit entre deux murs hérissés de pics, on touche l'écran pour
-sauter, chaque rebond contre un mur fait +1 point. Le bot passe entre les pics tout seul.
+APK Android qui joue à un jeu de tour (type *Stack*) : un bloc glisse au-dessus de la tour, il faut toucher
+l'écran quand il est pile au-dessus du sommet. L'appli regarde l'écran (capture d'écran Android), suit le bloc,
+calcule à quel instant il sera aligné avec la tour et touche l'écran (service d'accessibilité) un peu avant, pour
+compenser le délai du téléphone.
 
-## Comment ça marche
+## Installer
 
-- **Vue** (`logic/Detector.kt`) : capture d'écran (MediaProjection). Il lit la balle (carré blanc qui tourne, avec
-  des « fantômes » derrière), les pics rouges de chaque mur et les lignes du terrain. Validé sur de vraies images.
-- **Physique** (`logic/Pilot.kt`) : mesurée sur ta vidéo — la balle traverse l'écran de plus en plus vite
-  (4,4 px/image au 1er rebond, 8 au 17e) et la gravité et la force du saut grandissent avec elle. Le pilote apprend
-  en direct la gravité, la force du saut et le délai entre l'envoi d'un tap et son effet.
-- **Plan** (`logic/Planner.kt`) : à chaque image, il simule des suites de taps pour que la balle arrive au mur
-  d'en face dans un trou entre les pics (de préférence en haut d'un saut, là où la hauteur ne dépend pas du timing),
-  sans toucher plafond/sol, et dans un état d'où le trou suivant reste atteignable. Les pics ne descendent jamais
-  très bas : il se tient de préférence dans la bande libre du bas.
-- **Mains** : un service d'accessibilité injecte les touchers.
-
-`sim/` contient les tests exécutés à chaque build : détection sur de vraies images de la vidéo et un jeu simulé
-d'après ta vidéo (vitesse croissante, pics qui se multiplient, latence et bruit de mesure).
+1. Récupérer l'APK `triche-stack.apk` : onglet **Actions** du dépôt → dernier run → *Artifacts* (et sur Discord
+   si le secret `DISCORD_WEBHOOK_URL` est défini ; Discord n'est qu'un moyen de livraison, pas une obligation).
+2. Installer, ouvrir « Triche Stack », activer le service d'accessibilité, puis « Démarrer le bot ».
+3. Ouvrir le jeu, toucher l'écran pour lancer la partie : le bot prend le relais.
 
 ## Réglages
 
-- **Marge de sécurité** (px, 26 par défaut) : distance supplémentaire gardée entre la balle et les pics. Plus
-  grande = plus prudent.
-- **S'arrêter après N points** (0 = jamais).
+* **Score visé** : nombre de blocs posés (0 = jamais s'arrêter).
+* **Rater volontairement au score visé** : coché, le bot fait tomber les blocs à côté pour terminer la partie ;
+  décoché, il arrête simplement de jouer.
 
-## Compilation automatique + envoi sur Discord (facultatif)
+## Comment ça marche
 
-Chaque push lance `.github/workflows/build-apk.yml` : tests → APK. L'APK est toujours téléchargeable dans les
-*artefacts* du workflow. Pour le recevoir aussi dans un salon Discord, ajoute un secret `DISCORD_WEBHOOK_URL`
-(URL d'un webhook) dans *Settings → Secrets and variables → Actions*.
+* `Segmenter` : repère les faces supérieures des blocs (zones de couleur unie, claires et saturées ; le socle gris du
+  départ aussi). Deux blocs voisins de couleurs différentes (≥ 9 d'écart, comme dans le jeu) restent séparés.
+* `StackBot` :
+  * le bloc mobile = la zone dont la couleur n'est pas celle d'un bloc déjà posé ; son centre (x) est ajusté par
+    régression sur les dernières images (vitesse ≈ 350–500 px/s, constante pendant un bloc) ;
+  * la cible = le centre du sommet de la tour, mesuré avant que le bloc ne le recouvre ;
+  * le toucher est programmé à `instant d'alignement − latence` (le tir est planifié sur horloge, pas sur les
+    images) ;
+  * après chaque pose, le bloc est rogné du décalage : en comparant le sommet de la tour avant/après, on lit
+    l'erreur en pixels, donc en millisecondes, et on corrige la latence (une par sens de déplacement). Elle est
+    mémorisée d'une partie à l'autre.
+* `sim/` : tests JVM de la même logique — segmentation sur de vraies images du jeu, simulateur de partie
+  (latences, gigue, images perdues, vitesses différentes, démarrage en cours de partie, fin volontaire).
+  `./gradlew -p sim test`. Avec `STACK_FRAMES=<dossier d'images d'une vidéo>`, un test rejoue une partie humaine.
 
-## Installation et utilisation
+## Limites
 
-1. Installe l'APK (autoriser les sources inconnues).
-2. Ouvre **Triche Dangerwall**, puis *Activer le service d'accessibilité* → active « Triche Dangerwall ».
-   Android 13+ : si c'est grisé, *Infos de l'appli* → ⋮ → *Autoriser les paramètres restreints*.
-3. *Démarrer le bot* → accepter la capture d'écran.
-4. Ouvre le jeu et touche l'écran une fois pour lancer la partie : le bot prend le relais dès que la balle bouge.
-5. Arrêt : bouton *Arrêter* de la notification.
+Pas testé sur un vrai téléphone (aucun accès à un appareil ici) : la latence réelle de `dispatchGesture` et de la
+capture est inconnue, d'où le calibrage automatique sur les premiers blocs. Si le bot se comporte mal, une vidéo
+de l'écran pendant qu'il joue permet de recaler.

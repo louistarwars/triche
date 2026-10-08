@@ -1,4 +1,4 @@
-package fr.triche.dangerwall
+package fr.triche.stack
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -32,7 +32,7 @@ class TapService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
-    /** Un toucher très bref (8 ms) : le jeu saute dès l'appui. */
+    /** Un toucher très bref (8 ms) : le jeu prend l'appui en compte dès qu'il commence. */
     fun tap(x: Float, y: Float): Boolean {
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
