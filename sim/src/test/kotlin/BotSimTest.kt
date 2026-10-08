@@ -4,7 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 class BotSimTest {
-    class Result(val levels: Int, val errors: List<Double>, val widthEnd: Double, val over: Boolean, val bot: StackBot)
+    class Result(val levels: Int, val errors: List<Double>, val widthEnd: Double, val over: Boolean, val bot: StackBot, val u: List<Double> = emptyList(), val frozen: List<Double> = emptyList())
 
     /** Fait jouer le bot contre le simulateur à 60 images/s (avec un peu de gigue) et renvoie ce qui s'est passé. */
     fun play(
@@ -21,19 +21,22 @@ class BotSimTest {
         dropFrames: Double = 0.0,
         decoy: Boolean = false,
         drift: Double = 0.0,
+        amplitude: Double = 500.0,
+        startDist: Double = 350.0,
+        posNoise: Double = 0.0,
         frameJitter: Double = 0.001,
     ): Result {
-        val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale, decoy = decoy, latencyDrift = drift)
+        val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale, decoy = decoy, latencyDrift = drift, amplitude = amplitude, startDist = startDist, posNoise = posNoise)
         val bot = StackBot(720, 1594, settings)
         if (verbose) bot.log = { println(it) }
         var tdbg = 0.0
-        if (verbose) bot.debug = { if (tdbg in 6.1..7.2 && tdbg.toInt().toDouble() >= 0) println("   d t=%.3f %s".format(tdbg, it)) }
+        if (verbose) bot.debug = { if (tdbg > 30.0) println("   d " + it) }
         val rnd = java.util.Random(seed * 31 + 7)
         var t = 0.0
         var nextFrame = 0.0031 + captureLag
         var tapAt = Double.NaN
         val dt = 0.001
-        while (t < 600.0 && !sim.over && sim.level < maxLevels && bot.state != StackBot.State.DONE) {
+        while (t < 1800.0 && !sim.over && sim.level < maxLevels && bot.state != StackBot.State.DONE) {
             sim.advance(t)
             if (!tapAt.isNaN() && t >= tapAt) {
                 sim.tap(t)
@@ -45,13 +48,13 @@ class BotSimTest {
                 val ft = t + (rnd.nextDouble() - 0.5) * frameJitter
                 tdbg = t
                 val r = bot.onFrame(ft, sim.comps(t))
-                if (r != null && tapAt.isNaN()) tapAt = r else if (r != null) tapAt = r
+                if (r != null) tapAt = r else if (!tapAt.isNaN() && tapAt - t > 0.06) tapAt = Double.NaN   // comme le service
                 nextFrame += 1.0 / fps
             }
             t += dt
         }
         if (verbose) println("fin t=$t state=${bot.state} status=${bot.status} over=${sim.over} level=${sim.level}")
-        return Result(sim.level, sim.errors, sim.width, sim.over, bot)
+        return Result(sim.level, sim.errors, sim.width, sim.over, bot, sim.uList, sim.frozenList)
     }
 
     @Test
@@ -151,5 +154,45 @@ class BotSimTest {
         val late = r.errors.drop(20)
         println("   erreurs après le niveau 20 : " + late.joinToString { "%.0f".format(it) })
         assertTrue(late.count { abs(it) > 8 } <= late.size / 3, "trop d'erreurs avec dérive : $late")
+    }
+
+
+    @Test
+    fun blocQuiAccelereFortEtPositionBruitee() {
+        // oscillation de ±300 px (le bloc accélère beaucoup en approchant), position mesurée à ±1 px près, toucher à ±4 ms
+        for (seed in 41L..44L) {
+            val r = play(seed, StackSettings(), amplitude = 300.0, startDist = 280.0, posNoise = 1.0, jitter = 0.004, maxLevels = 70)
+            val tail = r.errors.drop(15)
+            println("accélération forte, bruit 1 px : seed=$seed largeur finale ${"%.0f".format(r.widthEnd)}, |e|>5 px sur ${tail.count { abs(it) > 5 }}/${tail.size}, |e|>8 px sur ${tail.count { abs(it) > 8 }}, lat=${"%.0f".format(r.bot.latLeft * 1000)}")
+        }
+    }
+
+    @Test
+    fun precisionApresCalibrage() {
+        // toucher à ±3 ms, position mesurée à ±0,7 px : après le calibrage, presque tous les blocs doivent être posés « parfaits »
+        for (seed in 51L..54L) {
+            val r = play(seed, StackSettings(), jitter = 0.003, posNoise = 0.7, maxLevels = 100, verbose = seed == 51L)
+            val tail = r.errors.drop(15)
+            val bad = tail.count { abs(it) > 4.5 }
+            println("   erreurs: " + r.errors.joinToString { "%.0f".format(it) })
+            println("   images figées : " + r.frozen.joinToString(" ") { "%.4f".format(it) })
+            println("   (u ms, e px) : " + r.u.indices.joinToString(" ") { "%d:(%.1f,%.0f)".format(it, r.u[it] * 1000, r.errors[it]) })
+            println("précision seed=$seed : niveaux=${r.levels}, largeur finale ${"%.0f".format(r.widthEnd)}, blocs à plus de 4,5 px : $bad/${tail.size}")
+            assertTrue(r.levels >= 100 && !r.over, "seed $seed : ${r.levels} niveaux")
+            assertTrue(bad <= tail.size / 8, "seed $seed : $bad blocs imprécis sur ${tail.size}")
+        }
+    }
+
+    @Test
+    fun compareModes() {
+        for (jit in listOf(0.0, 0.003, 0.006)) for (precise in listOf(false, true)) {
+            var bad = 0; var tot = 0; var w = 0.0
+            for (seed in 61L..66L) {
+                val r = play(seed, StackSettings(precisionMode = precise), jitter = jit, posNoise = 0.7, maxLevels = 100)
+                val tail = r.errors.drop(15)
+                bad += tail.count { abs(it) > 4.5 }; tot += tail.size; w += r.widthEnd / 6
+            }
+            println("COMPARE gigue ±${(jit * 1000).toInt()} ms ${if (precise) "PRÉCIS" else "continu"} : blocs >4,5 px : ${"%.0f".format(100.0 * bad / tot)} %, largeur finale ${"%.0f".format(w)}")
+        }
     }
 }

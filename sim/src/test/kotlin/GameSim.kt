@@ -26,6 +26,11 @@ class GameSim(
     private val decoy: Boolean = false,
     /** Dérive de la latence (s ajoutées par niveau) : un téléphone qui chauffe répond de plus en plus tard. */
     private val latencyDrift: Double = 0.0,
+    /** Amplitude de l'oscillation et distance de départ du bloc (px) : plus l'amplitude est petite, plus il accélère près du centre. */
+    private val amplitude: Double = 500.0,
+    private val startDist: Double = 350.0,
+    /** Bruit de mesure de la position du bloc dans l'image (px, écart-type). */
+    private val posNoise: Double = 0.0,
 ) {
     private val rnd = java.util.Random(seed)
 
@@ -71,6 +76,8 @@ class GameSim(
     val over get() = s.over
     val level get() = s.level
     val width get() = s.width
+    val frozenList = ArrayList<Double>()   // heure (côté capture) de l'image où chaque bloc s'est figé
+    val uList = ArrayList<Double>()       // attente entre l'arrivée du toucher et l'image qui le prend (centre de fenêtre = 8,3 ms)
     val errors = ArrayList<Double>()      // décalage de chaque pose (signé, px)
     private var pendingTapAt = Double.NaN
 
@@ -109,9 +116,9 @@ class GameSim(
      */
     private fun slabCenter(st: St, t: Double): Double {
         if (!st.frozenAt.isNaN() && t >= st.frozenAt) return st.frozenC
-        val a = 500.0
+        val a = amplitude
         val w = speed(st.level) / a                     // vitesse max = A·ω au centre
-        val phase0 = Math.asin(-350.0 / a)               // départ à -350 px
+        val phase0 = Math.asin(-startDist / a)           // départ à -startDist px
         val p = a * Math.sin(phase0 + w * (t - st.startT))
         return tc(st) + st.dir * p
     }
@@ -128,6 +135,8 @@ class GameSim(
         if (s.over) return
         if (!pendingTapAt.isNaN() && t >= pendingTapAt && s.frozenAt.isNaN()) {
             val g = gridCeil(pendingTapAt)
+            uList.add(g - pendingTapAt)
+            frozenList.add(g + captureLag)
             s.frozenC = slabCenter(s, g)
             s.frozenAt = g
             s.cutDone = false
@@ -189,7 +198,8 @@ class GameSim(
             val c = slabCenter(st, gridFloor(tau))
             val fall = if (!st.frozenAt.isNaN() && tau >= st.frozenAt) min(18.0, (tau - st.frozenAt) * 400) else 0.0
             val sy = towerY - 18 - 0.4 * abs(c - tc(st)).coerceAtMost(300.0) + fall
-            comp(c - st.width / 2, c + st.width / 2, sy, st.cS)?.let { out.add(it) }
+            val nz = if (posNoise > 0) rnd.nextGaussian() * posNoise else 0.0
+            comp(c - st.width / 2 + nz, c + st.width / 2 + nz, sy, st.cS)?.let { out.add(it) }
         }
         return out
     }

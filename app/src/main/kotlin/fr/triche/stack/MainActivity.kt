@@ -101,8 +101,9 @@ class MainActivity : Activity() {
                 "Si Android l'interdit (réglage restreint), ouvre Infos de l'appli > ⋮ > « Autoriser les paramètres restreints ».\n" +
                 "• Étape 2 : « Démarrer le bot » et accepte la capture d'écran.\n" +
                 "• Ouvre le jeu et touche l'écran pour lancer la partie : le bot prend le relais dès qu'il voit le bloc glisser.\n" +
-                "• Les premiers blocs servent à calibrer le délai de réaction du téléphone (un peu de décalage au début est normal) ; " +
-                "il est mémorisé pour les parties suivantes.\n" +
+                "• Les 8 premiers blocs servent à calibrer le délai de réaction du téléphone (un peu de décalage au début est normal). " +
+                "Ensuite le bot ne touche que lorsque le bloc peut être posé pile : il laisse passer les mauvais passages, donc il est lent " +
+                "(plusieurs secondes par bloc) mais précis.\n" +
                 "• Arrêt : bouton « Arrêter » de la notification.\n" +
                 "• Si ça se passe mal : certains téléphones ne permettent pas d'enregistrer l'écran pendant que le bot le capture. " +
                 "Le bot tient donc un journal de ce qu'il voit et fait : après la partie, « Voir / copier le journal », « Copier », et colle-le dans la conversation.",

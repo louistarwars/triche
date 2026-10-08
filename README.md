@@ -35,6 +35,18 @@ compenser le délai du téléphone.
   (latences, gigue, images perdues, vitesses différentes, démarrage en cours de partie, fin volontaire).
   `./gradlew -p sim test`. Avec `STACK_FRAMES=<dossier d'images d'une vidéo>`, un test rejoue une partie humaine.
 
+## Précision (mode « tout pile »)
+
+Le jeu avance par pas d'image (60/s) et prend un toucher à l'image qui suit son arrivée. Le bot :
+
+1. **calibre** pendant ses 8 premiers blocs le délai entre l'envoi du toucher et l'image du jeu qui le prend (heure de
+   l'image où le bloc s'est figé − heure d'envoi) ;
+2. ensuite il vise **le milieu de la fenêtre** de prise en compte (insensible à une gigue de ± une demi-image) ;
+3. il ne touche que si une image du jeu tombe **à moins de ~1,5 px** du centre de la tour : sinon il laisse passer le
+   bloc, qui repasse toutes les ~2 s (il est donc lent : plusieurs secondes par bloc) ;
+4. la trajectoire est ajustée par une oscillation sinusoïdale (le bloc accélère vers le centre) ;
+5. si le fil qui touche l'écran part avec plus de 4 ms de retard, le toucher est **abandonné** (attente du prochain passage).
+
 ## Limites
 
 Pas testé sur un vrai téléphone (aucun accès à un appareil ici) : la latence réelle de `dispatchGesture` et de la

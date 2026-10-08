@@ -41,6 +41,7 @@ class BotService : Service() {
         private const val NOTIF_ID = 1
         private const val TAG = "TricheStack"
         private const val MAX_WIDTH = 720
+        private const val MAX_LAG_MS = 4.0
 
         @Volatile
         var running = false
@@ -187,7 +188,10 @@ class BotService : Service() {
         // le toucher part depuis un autre fil : il ne doit pas attendre la fin de l'analyse d'une image
         val tt = HandlerThread("triche-tap", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY).also { it.start() }
         tapThread = tt
-        tapHandler = Handler(tt.looper)
+        tapHandler = Handler(tt.looper).also { h ->
+            // priorité maximale pour le fil qui touche l'écran (s'il refuse, tant pis)
+            h.post { try { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO) } catch (_: Exception) { } }
+        }
 
         val mp = getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, data)
         projection = mp
@@ -289,7 +293,12 @@ class BotService : Service() {
         targetT = Double.NaN
         scheduledAt = Double.NaN
         val svc = TapService.instance
-        if (svc != null && !target.isNaN()) {
+        if (svc != null && !target.isNaN() && lag > MAX_LAG_MS && bot.precise) {
+            // Le fil a été interrompu : le bloc a déjà dépassé l'instant visé. Un bloc posé de travers rogne la tour pour de
+            // bon, alors qu'attendre le prochain passage (~4 s) ne coûte rien : on abandonne ce toucher.
+            Journal.add("TOUCHER ABANDONNÉ : retard de %.0f ms sur l'heure prévue (limite %.0f ms)".format(lag, MAX_LAG_MS))
+            bot.onTapAborted()
+        } else if (svc != null && !target.isNaN()) {
             lastTap = t
             val ok = svc.tap(realW * 0.5f, realH * 0.70f)
             Journal.add("TOUCHER envoyé (retard sur l'heure prévue : %.0f ms, dispatchGesture=%s)".format(lag, ok))

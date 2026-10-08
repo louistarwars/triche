@@ -12,6 +12,10 @@ class StackSettings(
     /** Délai initial (s) entre l'ordre de toucher et le moment où le jeu pose le bloc, vu dans l'image. */
     val latencyLeft: Double = 0.11,
     val latencyRight: Double = 0.11,
+    /** Viser le milieu de la fenêtre de prise en compte du toucher et ne toucher que quand une image tombe pile sur la tour. */
+    val precisionMode: Boolean = true,
+    /** Résidu maximal toléré (px) entre le bloc, à l'image visée, et le centre de la tour. */
+    val maxResidual: Double = 1.5,
 )
 
 /**
@@ -68,6 +72,28 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     private var nLearn = 0
     private var lastE = 0.0
 
+    // cadence des images du jeu
+    private val pd = DoubleArray(64)
+    private var pn = 0
+    private var lastFrameT = Double.NaN
+    private var gridP = 0.0
+
+    // précision : après calibrage du délai « envoi -> image du jeu qui prend le toucher », on vise le milieu de la fenêtre
+    private val obsY = ArrayList<Double>()   // écarts (heure de l'image où le bloc s'est figé) − (heure d'envoi du toucher)
+    private var calibrated = false
+    private var dHat = 0.0
+    private val flips = ArrayList<Int>()
+    private var aimLocked = false
+    private var aimResidual = 0.0
+    private var aimTj = 0.0
+    private var lastLandT = Double.NaN
+    private var predBias = 0.0               // écart moyen (réel − prévu) : la droite ajustée sous-estime un bloc qui accélère
+    private var lastMoveStamp = Double.NaN
+    private var needFar = false              // après un toucher abandonné : on attend le prochain passage du bloc
+    private var frozenT2 = Double.NaN
+    private var frozenCs = Double.NaN        // position du bloc à l'image où il s'est figé (avant le rognage)
+    private var lastMoveCs = Double.NaN
+
     private var tapTime = Double.NaN
     private var tapVel = 0.0
     private var tapDir = 0
@@ -87,7 +113,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     private var frozenT = false      // sommet de la tour mesuré une fois pour toutes après chaque pose
 
     private companion object {
-        const val MAXS = 14
+        const val MAXS = 36
         const val COLOR_TOL = 5
         const val MIN_SLAB_AREA = 1200
     }
@@ -111,13 +137,91 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     }
 
     /** À appeler quand le toucher programmé a été envoyé. */
+    /** Vrai tant que le bot vise la précision (faux quand il rate volontairement après le score visé). */
+    val precise: Boolean get() = !(settings.targetScore > 0 && score >= settings.targetScore)
+
     @Synchronized
     fun onTapped(t: Double) {
         tapTime = t
         pendingTap = false
         tapDir = if (lastV >= 0) 1 else -1
         tapVel = abs(lastV)
-        log?.invoke("TAP t=%.3f".format(t))
+        log?.invoke("TAP t=%.3f (visée verrouillée : %s, résidu visé %.1f px, image visée à t=%.4f)".format(t, aimLocked, aimResidual, aimTj))
+    }
+
+    /** Le toucher programmé n'est pas parti (retard d'exécution trop grand) : on attend le prochain passage du bloc. */
+    @Synchronized
+    fun onTapAborted() {
+        pendingTap = false
+        needFar = true
+        log?.invoke("TOUCHER ABANDONNÉ (parti en retard) : j'attends le prochain passage du bloc")
+    }
+
+    /** Période des images du jeu (moyenne des écarts réguliers entre images) ; 0 tant qu'elle n'est pas fiable. */
+    private fun updateGrid(t: Double) {
+        if (!lastFrameT.isNaN()) {
+            val d = t - lastFrameT
+            if (d in 0.003..0.045) {
+                pd[pn % pd.size] = d
+                pn++
+            }
+        }
+        lastFrameT = t
+        val n = minOf(pn, pd.size)
+        if (n < 20) { gridP = 0.0; return }
+        val sorted = pd.copyOf(n).also { it.sort() }
+        val med = sorted[n / 2]
+        var sum = 0.0
+        var near = 0
+        for (i in 0 until n) if (abs(pd[i] - med) < 0.12 * med) { sum += pd[i]; near++ }
+        gridP = if (med in 0.0065..0.0215 && near >= 0.6 * n) sum / near else 0.0
+    }
+
+    /**
+     * Après chaque pose de notre toucher : y = (heure de l'image où le bloc s'est figé) − (heure d'envoi). Le jeu prend le
+     * toucher à l'image qui suit son arrivée : y = D + u, D = délai fixe (envoi -> arrivée, + retard de capture) et u ∈ [0 ; 1 image[.
+     * Tant que les phases sont au hasard (calibrage), la médiane de y − ½ image donne D. Une fois D connu, on vise le
+     * milieu de la fenêtre ; un toucher pris une image trop tôt / trop tard (m ≠ 0) ramène la visée d'une demi-image.
+     */
+    private fun observeFreeze(t: Double, ours: Boolean) {
+        if (!ours || frozenT2.isNaN() || tapTime.isNaN() || gridP <= 0) return
+        val y = frozenT2 - tapTime
+        if (y !in 0.0..0.5) return
+        if (!calibrated) {
+            obsY.add(y)
+            while (obsY.size > 14) obsY.removeAt(0)
+            // D est dans ]y_max − P ; y_min] pour chaque observation : on prend le milieu de l'intersection si elle existe
+            val lo = obsY.max() - gridP
+            val hi = obsY.min()
+            val med = obsY.sorted()[obsY.size / 2] - gridP / 2
+            dHat = if (hi > lo) (lo + hi) / 2 else med
+            log?.invoke("   calibrage %d/8 : y=%.1f ms, délai estimé %.1f ms (intersection %.1f..%.1f, médiane %.1f)".format(obsY.size, y * 1000, dHat * 1000, lo * 1000, hi * 1000, med * 1000))
+            if (obsY.size >= 8 && gridP > 0) {
+                calibrated = true
+                flips.clear()
+                log?.invoke("CALIBRAGE TERMINÉ : délai %.1f ms, pas d'image %.2f ms -> visée au milieu de la fenêtre (%.1f ms)".format(dHat * 1000, gridP * 1000, (dHat + gridP / 2) * 1000))
+            }
+        } else if (aimLocked) {
+            val lq = dHat + gridP / 2
+            val m = Math.round((y - lq) / gridP).toInt()
+            if (m == 0 && !frozenCs.isNaN()) {
+                val eT = (frozenCs - (tx0 + tx1) / 2) * (if (lastV >= 0) 1 else -1)
+                predBias += 0.3 * ((eT - aimResidual) - predBias)
+                predBias = predBias.coerceIn(-8.0, 8.0)
+                log?.invoke("   biais de prévision : réel %.1f px − prévu %.1f px -> biais appris %.1f px".format(eT, aimResidual, predBias))
+            }
+            flips.add(if (m != 0) 1 else 0)
+            while (flips.size > 6) flips.removeAt(0)
+            if (m != 0) {
+                dHat += m * gridP / 2
+                log?.invoke("   TOUCHER PRIS %d IMAGE(S) D'ÉCART : visée ramenée d'une demi-image (délai %.1f ms)".format(m, dHat * 1000))
+                if (flips.sum() >= 2) {
+                    calibrated = false
+                    obsY.clear()
+                    log?.invoke("   trop d'écarts : je recalibre le délai")
+                }
+            }
+        }
     }
 
     private fun isKnown(c: Comp): Boolean {
@@ -148,6 +252,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         }
         if (state == State.DONE) return null
 
+        updateGrid(t)
         updateStatics(t, comps)
 
         val cands = if (t < lockUntil) emptyList() else comps.filter { !it.gray && it.area >= MIN_SLAB_AREA && !isKnown(it) }
@@ -225,6 +330,12 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
             staticSince = t
         }
         lastY = slabC.ymin.toDouble()
+        // instant où le bloc s'arrête : sa position à la dernière image où il bougeait encore (avant la chute et le rognage)
+        if (ns > 0 && frozenCs.isNaN()) {
+            val step = abs(moved)
+            if (step in 2.5..25.0) { lastMoveCs = cs; lastMoveStamp = t }
+            else if (step <= 1.5 && !lastMoveCs.isNaN() && abs(lastV) > 150) { frozenCs = lastMoveCs; frozenT2 = lastMoveStamp }
+        }
         // l'image arrive parfois deux fois de suite (même position) : on ne duplique pas l'échantillon
         if (ns > 0 && t - st[ns - 1] < 0.004) return null
         if (ns == MAXS) {
@@ -283,6 +394,61 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
             return null
         }
         status = "Score estimé $score — latence %.0f ms".format(lat * 1000)
+        if (needFar) {
+            // un toucher a été abandonné : on laisse passer le bloc et on reprend quand il revient de loin
+            if (abs(csNow - tc) > 250 && ((csNow - tc) * v < 0)) needFar = false else return null
+        }
+        if (calibrated && gridP > 0 && settings.precisionMode) {
+            // Le jeu avance par pas d'image et prend le toucher à l'image suivante : on choisit l'image où le bloc sera le plus
+            // près du centre de la tour, et on envoie le toucher pour qu'il arrive au milieu de la fenêtre de cette image
+            // (insensible à une gigue de ± une demi-image). Si aucune image ne tombe assez près (résidu > seuil), on laisse
+            // passer : le bloc revient toutes les ~2 s.
+            val lq = dHat + gridP / 2
+            val tl = st[ns - 1]
+            val sgn = if (v > 0) 1 else -1
+            val off = sgn * predBias
+            var best = -1
+            var prevAd = abs(fit.at(tl) - tc + off)
+            var j = 1
+            while (j <= 60) {
+                val tj = tl + j * gridP
+                val ad = abs(fit.at(tj) - tc + off)
+                if (tj - lq >= t - 0.002) {
+                    if (best < 0) {
+                        if (ad > prevAd) return null          // déjà passé
+                        best = j
+                    } else if (ad < abs(fit.at(tl + best * gridP) - tc + off)) best = j else break
+                } else if (ad > prevAd && j > 2) break
+                prevAd = ad
+                j++
+            }
+            if (best < 0) return null
+            val tj = tl + best * gridP
+            val rawResid = (fit.at(tj) - tc) * sgn
+            val resid = rawResid + predBias
+            // pour lancer un toucher le résidu doit être petit ; une fois lancé, une prévision plus précise peut seulement
+            // déplacer la visée (ou l'annuler si elle devient franchement mauvaise)
+            if (lastLandT.isNaN()) lastLandT = t
+            // garde-fou : si aucun passage n'est assez propre pendant très longtemps (phase du jeu défavorable), on assouplit
+            val relax = ((t - lastLandT - 25.0) * 0.1).coerceIn(0.0, 2.5)
+            val limit = (if (pendingTap) settings.maxResidual + 1.5 else settings.maxResidual) + relax
+            if (abs(resid) > limit) {
+                status = "Score estimé $score — j'attends un passage plus propre (résidu %.1f px)".format(resid)
+                return null
+            }
+            val tTap = tj - lq
+            // on ne s'engage que dans les dernières ~50 ms avant l'envoi : la prévision est alors la plus précise
+            if (tTap > t + 0.05) return null
+            debug?.invoke("DECISION t=%.3f image+%d tTap-t=%.1f ms brut=%.1f biais=%.1f resid=%.1f v=%.0f rms=%.2f".format(t, best, (tTap - t) * 1000, rawResid, predBias, resid, v, fit.rms))
+            aimV = abs(v)
+            aimResidual = rawResid
+            aimTj = tj
+            aimLocked = true
+            if (!pendingTap) log?.invoke("PRÉVU (visée au milieu de la fenêtre) toucher dans %.0f ms, image +%d, pas %.2f ms, résidu %.1f px : centre bloc %.0f -> tour %.0f, vitesse %.0f px/s, rms %.1f, délai %.1f ms".format(
+                (max(tTap, t) - t) * 1000, best, gridP * 1000, resid, csNow, tc, v, fit.rms, lq * 1000))
+            pendingTap = true
+            return max(tTap, t)
+        }
         if (tau < -0.01 || tau > 1.5) return null
         val tTap = st[ns - 1] + tau - lat
         if (tTap > t + 0.18) return null
@@ -307,28 +473,31 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         log?.invoke("   prédiction : dernier mouvement t=%.3f, alignement prévu à t=%.3f => écart prédit %.1f px (e mesuré %.1f)".format(lastMoveT, lastAlign, (lastMoveT - lastAlign) * lastAlignV * dir, e))
         log?.invoke("POSE t=%.3f dir=%d vmax=%.0f v=%.0f e=%.1fpx tour %.0f..%.0f -> %d..%d (slabW=%.0f) ours=%s".format(
             t, dir, vSeen, lastV, e, tx0, tx1, slab.xmin, slab.xmax, slabW, ours))
-        if (ours && abs(e) < 0.4 * (tx1 - tx0)) {
-            // décalage en secondes, avec la vitesse du bloc au moment de la visée (pas celle d'après la pose)
+        // erreur réelle : position du bloc à l'image où il s'est figé (le jeu l'arrondit à « parfait » en dessous de ~4 px,
+        // et le rognage ne dit rien alors)
+        observeFreeze(t, ours)
+        val eTrue = if (!frozenCs.isNaN()) (frozenCs - (tx0 + tx1) / 2) * dir else e
+        log?.invoke("   position figée : e réel %.1f px (rognage : %.1f px)".format(eTrue, e))
+        if (ours && abs(eTrue) < 0.4 * (tx1 - tx0)) {
             val speed = max(150.0, if (aimV > 0) aimV else abs(lastV))
-            val lim = if (nLearn < 4) 0.15 else 0.03
-            val dl = (e / speed).coerceIn(-lim, lim)
-            // la latence (envoi du toucher -> prise en compte) est physiquement la même dans les deux sens : on met à jour
-            // les deux, le sens concerné davantage ; gain fort au début, faible ensuite (gigue d'un toucher)
-            // deux erreurs de suite dans le même sens : la latence dérive, on rattrape plus vite
-            val streak = abs(e) > 6 && abs(lastE) > 6 && e * lastE > 0
-            val g = max(if (streak) 0.4 else 0.15, 1.0 / (nLearn + 1.5))
-            if (dir > 0) {
-                latRight += g * dl
-                latLeft += 0.6 * g * dl
-            } else {
-                latLeft += g * dl
-                latRight += 0.6 * g * dl
+            run {
+                val lim = if (nLearn < 4) 0.15 else 0.03
+                val dl = (eTrue / speed).coerceIn(-lim, lim)
+                val streak = abs(eTrue) > 6 && abs(lastE) > 6 && eTrue * lastE > 0
+                val g = max(if (streak) 0.4 else 0.15, 1.0 / (nLearn + 1.5))
+                if (dir > 0) {
+                    latRight += g * dl
+                    latLeft += 0.6 * g * dl
+                } else {
+                    latLeft += g * dl
+                    latRight += 0.6 * g * dl
+                }
+                val mean = (latLeft + latRight) / 2
+                latLeft = latLeft.coerceIn(mean - 0.012, mean + 0.012).coerceIn(0.02, 0.45)
+                latRight = latRight.coerceIn(mean - 0.012, mean + 0.012).coerceIn(0.02, 0.45)
+                if (abs(eTrue) > 6) lastE = eTrue else if (abs(eTrue) <= 4) lastE = 0.0
             }
-            val mean = (latLeft + latRight) / 2
-            latLeft = latLeft.coerceIn(mean - 0.012, mean + 0.012).coerceIn(0.02, 0.45)
-            latRight = latRight.coerceIn(mean - 0.012, mean + 0.012).coerceIn(0.02, 0.45)
             nLearn++
-            if (abs(e) > 6) lastE = e else if (abs(e) <= 4) lastE = 0.0
         }
         tx0 = slab.xmin.toDouble()
         tx1 = slab.xmax.toDouble()
@@ -337,7 +506,14 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         lockUntil = t + 0.10
         lastV = 0.0
         aimV = 0.0
+        lastLandT = t
+        frozenCs = Double.NaN
+        frozenT2 = Double.NaN
+        lastMoveCs = Double.NaN
+        lastMoveStamp = Double.NaN
+        aimLocked = false
         vSeen = 0.0
+        slabW = 0.0     // le bloc suivant a la taille du sommet rogné : on repart de la largeur de la tour
         ns = 0
         staticRun = 0
         tapTime = Double.NaN
@@ -383,11 +559,58 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         }
     }
 
-    private class Fit(val v: Double, val c0: Double, val t0: Double, val rms: Double) {
-        fun at(t: Double) = c0 + v * (t - t0)
+    /**
+     * Trajectoire ajustée du centre du bloc : droite (c0 + v·dt) ou oscillation sinusoïdale autour du centre de la tour
+     * (tc + a·sin ω·dt + b·cos ω·dt) — le bloc accélère en approchant du centre, une droite sous-estime alors sa position
+     * future de plusieurs pixels.
+     */
+    private class Fit(val v: Double, val c0: Double, val t0: Double, val rms: Double,
+                      val w: Double = 0.0, val tc: Double = 0.0, val a: Double = 0.0, val b: Double = 0.0) {
+        fun at(t: Double): Double {
+            val dt = t - t0
+            return if (w > 0) tc + a * Math.sin(w * dt) + b * Math.cos(w * dt) else c0 + v * dt
+        }
     }
 
     private fun fit(): Fit? {
+        val lin = linearFit() ?: return null
+        if (!hasTower || ns < 20) return lin
+        val tLast = st[ns - 1]
+        val tcn = (tx0 + tx1) / 2
+        var first = ns
+        for (i in 0 until ns) if (tLast - st[i] <= 0.5) { first = i; break }
+        val n = ns - first
+        if (n < 20 || tLast - st[first] < 0.3) return lin
+        var best: Fit? = null
+        var w = 0.5
+        while (w <= 2.6) {
+            // moindres carrés de x = sc − tc sur (sin ωτ, cos ωτ), τ = t − tLast
+            var ss = 0.0; var cc = 0.0; var sc2 = 0.0; var sy = 0.0; var cy = 0.0
+            for (i in first until ns) {
+                val tau = st[i] - tLast
+                val si = Math.sin(w * tau); val ci = Math.cos(w * tau); val y = sc[i] - tcn
+                ss += si * si; cc += ci * ci; sc2 += si * ci; sy += si * y; cy += ci * y
+            }
+            val det = ss * cc - sc2 * sc2
+            if (det > 1e-9) {
+                val aa = (sy * cc - cy * sc2) / det
+                val bb = (cy * ss - sy * sc2) / det
+                var se = 0.0
+                for (i in first until ns) {
+                    val tau = st[i] - tLast
+                    val e = (sc[i] - tcn) - (aa * Math.sin(w * tau) + bb * Math.cos(w * tau))
+                    se += e * e
+                }
+                val rms = Math.sqrt(se / n)
+                if (best == null || rms < best.rms) best = Fit(aa * w, 0.0, tLast, rms, w, tcn, aa, bb)
+            }
+            w += 0.04
+        }
+        // on garde l'oscillation si elle explique au moins aussi bien les images que la droite (sur la même fenêtre)
+        return if (best != null && best.rms <= 1.5 * lin.rms + 0.3 && best.rms < 3.0) best else lin
+    }
+
+    private fun linearFit(): Fit? {
         if (ns < 6) return null
         val tLast = st[ns - 1]
         var n = 0
