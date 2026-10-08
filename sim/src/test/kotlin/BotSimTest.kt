@@ -19,6 +19,7 @@ class BotSimTest {
         startLevel: Int = 0,
         speedScale: Double = 1.0,
         dropFrames: Double = 0.0,
+        frameJitter: Double = 0.001,
     ): Result {
         val sim = GameSim(seed, inputLatency, jitter, captureLag, startLevel = startLevel, speedScale = speedScale)
         val bot = StackBot(720, 1594, settings)
@@ -27,7 +28,7 @@ class BotSimTest {
         if (verbose) bot.debug = { if (tdbg in 6.1..7.2 && tdbg.toInt().toDouble() >= 0) println("   d t=%.3f %s".format(tdbg, it)) }
         val rnd = java.util.Random(seed * 31 + 7)
         var t = 0.0
-        var nextFrame = 0.0
+        var nextFrame = 0.0031 + captureLag
         var tapAt = Double.NaN
         val dt = 0.001
         while (t < 600.0 && !sim.over && sim.level < maxLevels && bot.state != StackBot.State.DONE) {
@@ -39,7 +40,7 @@ class BotSimTest {
             }
             if (t >= nextFrame) {
                 if (dropFrames > 0 && rnd.nextDouble() < dropFrames) { nextFrame += 1.0 / fps; t += dt; continue }
-                val ft = t + (rnd.nextDouble() - 0.5) * 0.004
+                val ft = t + (rnd.nextDouble() - 0.5) * frameJitter
                 tdbg = t
                 val r = bot.onFrame(ft, sim.comps(t))
                 if (r != null && tapAt.isNaN()) tapAt = r else if (r != null) tapAt = r
@@ -54,7 +55,7 @@ class BotSimTest {
     @Test
     fun jouePlusieursCentainesDeBlocsAvecLatenceInconnue() {
         for (jit in listOf(0.0, 0.008)) for (seed in 1L..4L) {
-            val r = play(seed, StackSettings(targetScore = 0, latencyLeft = 0.11, latencyRight = 0.11), jitter = jit, maxLevels = 60, verbose = false)
+            val r = play(seed, StackSettings(targetScore = 0, latencyLeft = 0.11, latencyRight = 0.11), jitter = jit, maxLevels = 60, verbose = false, frameJitter = 0.002)
             val tail = r.errors.drop(10)
             val big = tail.count { abs(it) > 8 }
             println("jit=$jit seed=$seed niveaux=${r.levels} largeurFin=${"%.0f".format(r.widthEnd)} perdu=${r.over} " +
@@ -114,5 +115,21 @@ class BotSimTest {
         val r2 = play(17, StackSettings(targetScore = 30, endOnTarget = false), maxLevels = 100)
         report("objectif 30 (je m'arrête)", r2)
         assertTrue(!r2.over && r2.levels == 30, "score ${r2.levels}")
+    }
+
+    @Test
+    fun gigueDuToucherRealiste() {
+        // jeu qui avance par pas d'image, toucher dont le délai varie de ±8 à ±14 ms : part de blocs ratés de plus de 5 px
+        for (jit in listOf(0.008, 0.014)) {
+            var exceed = 0
+            var total = 0
+            for (seed in 1L..6L) {
+                val r = play(seed, StackSettings(), jitter = jit, maxLevels = 80)
+                val tail = r.errors.drop(10)
+                exceed += tail.count { abs(it) > 5 }
+                total += tail.size
+            }
+            println("gigue ±${(jit * 1000).toInt()} ms : |e|>5px sur ${"%.0f".format(100.0 * exceed / total)} % des blocs")
+        }
     }
 }

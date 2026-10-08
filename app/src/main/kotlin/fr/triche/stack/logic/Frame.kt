@@ -10,8 +10,16 @@ class Frame(
     private val rowStride: Int,
     private val pixelStride: Int,
 ) {
+    // octets R, G, B, A en mémoire : lus d'un coup comme un entier (ordre « gros-boutiste », R en poids fort)
+    private val ints = if (pixelStride == 4 && rowStride % 4 == 0) {
+        buf.duplicate().order(java.nio.ByteOrder.BIG_ENDIAN).asIntBuffer()
+    } else null
+    private val rowInts = rowStride / 4
+
     /** Pixel packé 0xRRGGBB. */
     fun rgb(x: Int, y: Int): Int {
+        val ib = ints
+        if (ib != null) return ib.get(y * rowInts + x) ushr 8
         val o = y * rowStride + x * pixelStride
         return ((buf.get(o).toInt() and 0xFF) shl 16) or
             ((buf.get(o + 1).toInt() and 0xFF) shl 8) or

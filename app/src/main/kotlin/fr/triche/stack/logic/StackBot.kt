@@ -63,6 +63,8 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     private var slabW = 0.0
     private var staticRun = 0
     private var lastV = 0.0
+    private var aimV = 0.0
+    private var nLearn = 0
 
     private var tapTime = Double.NaN
     private var tapVel = 0.0
@@ -78,8 +80,6 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     private var lastMoveT = 0.0
     private var lastAlign = 0.0
     private var lastAlignV = 0.0
-    private var nLeft = 0
-    private var nRight = 0
     private var lockUntil = 0.0
     private var bestArea = 0
     private var frozenT = false      // sommet de la tour mesuré une fois pour toutes après chaque pose
@@ -274,6 +274,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         if (tau < -0.01 || tau > 1.5) return null
         val tTap = st[ns - 1] + tau - lat
         if (tTap > t + 0.18) return null
+        aimV = abs(v)
         if (!pendingTap) log?.invoke("PRÉVU toucher dans %.0f ms : centre bloc %.0f -> tour %.0f, vitesse %.0f px/s, rms %.1f, latence %.0f ms, bloc %.0f px / tour %.0f px".format(
             (max(tTap, t) - t) * 1000, csNow, tc, v, fit.rms, lat * 1000, slabW, towerW))
         pendingTap = true
@@ -295,19 +296,24 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         log?.invoke("POSE t=%.3f dir=%d vmax=%.0f v=%.0f e=%.1fpx tour %.0f..%.0f -> %d..%d (slabW=%.0f) ours=%s".format(
             t, dir, vSeen, lastV, e, tx0, tx1, slab.xmin, slab.xmax, slabW, ours))
         if (ours && abs(e) < 0.4 * (tx1 - tx0)) {
-            val dl = (e / max(100.0, abs(lastV))).coerceIn(-0.04, 0.04)
-            // gain fort au début (latence inconnue), puis faible : la gigue d'un toucher ne doit pas déstabiliser l'estimation
-            val n = if (dir > 0) nRight else nLeft
-            val g = max(0.2, 0.8 / (n + 1))
+            // décalage en secondes, avec la vitesse du bloc au moment de la visée (pas celle d'après la pose)
+            val speed = max(150.0, if (aimV > 0) aimV else abs(lastV))
+            val lim = if (nLearn < 4) 0.15 else 0.03
+            val dl = (e / speed).coerceIn(-lim, lim)
+            // la latence (envoi du toucher -> prise en compte) est physiquement la même dans les deux sens : on met à jour
+            // les deux, le sens concerné davantage ; gain fort au début, faible ensuite (gigue d'un toucher)
+            val g = max(0.15, 1.0 / (nLearn + 1.5))
             if (dir > 0) {
-                latRight = (latRight + g * dl).coerceIn(0.02, 0.45)
-                if (nLeft < 2) latLeft = (latLeft + 0.5 * g * dl).coerceIn(0.02, 0.45)
-                nRight++
+                latRight += g * dl
+                latLeft += 0.6 * g * dl
             } else {
-                latLeft = (latLeft + g * dl).coerceIn(0.02, 0.45)
-                if (nRight < 2) latRight = (latRight + 0.5 * g * dl).coerceIn(0.02, 0.45)
-                nLeft++
+                latLeft += g * dl
+                latRight += 0.6 * g * dl
             }
+            val mean = (latLeft + latRight) / 2
+            latLeft = latLeft.coerceIn(mean - 0.012, mean + 0.012).coerceIn(0.02, 0.45)
+            latRight = latRight.coerceIn(mean - 0.012, mean + 0.012).coerceIn(0.02, 0.45)
+            nLearn++
         }
         tx0 = slab.xmin.toDouble()
         tx1 = slab.xmax.toDouble()
@@ -315,6 +321,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         bestArea = 0
         lockUntil = t + 0.10
         lastV = 0.0
+        aimV = 0.0
         vSeen = 0.0
         ns = 0
         staticRun = 0

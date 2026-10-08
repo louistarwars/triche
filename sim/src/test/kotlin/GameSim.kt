@@ -16,7 +16,9 @@ class GameSim(
     private val inputJitter: Double = 0.008,
     /** Retard de la capture : l'image montre le jeu tel qu'il était il y a [captureLag] secondes. */
     private val captureLag: Double = 0.045,
-    private val perfectTol: Double = 2.0,
+    private val perfectTol: Double = 4.0,
+    /** Le jeu avance par pas d'image (60/s) : positions et prise en compte du toucher tombent sur ces instants. */
+    val period: Double = 1.0 / 60,
     private val screenW: Int = 720,
     private val startLevel: Int = 0,
     private val speedScale: Double = 1.0,
@@ -68,6 +70,11 @@ class GameSim(
     val errors = ArrayList<Double>()      // décalage de chaque pose (signé, px)
     private var pendingTapAt = Double.NaN
 
+    private val phase = 0.0031
+    /** Dernier instant de mise à jour du jeu ≤ t. */
+    fun gridFloor(t: Double) = Math.floor((t - phase) / period) * period + phase
+    private fun gridCeil(t: Double) = Math.ceil((t - phase) / period - 1e-9) * period + phase
+
     private fun tc(st: St) = st.tx0 + st.width / 2
     private fun speed(level: Int) = min(500.0, 380.0 + 4.0 * level) * speedScale
 
@@ -91,14 +98,17 @@ class GameSim(
         return colorAt(colorIdx)
     }
 
-    /** Position du centre du bloc mobile à l'instant [t] (va et vient de ±430 px autour de la tour). */
+    /**
+     * Position du centre du bloc mobile à l'instant [t] : oscillation sinusoïdale autour de la tour, comme dans la
+     * vidéo (la vitesse croît de ~0,7 à 1 × la vitesse maximale entre 350 px et 0 px du centre). Le bloc apparaît à
+     * 350 px du centre, côté alternant, et arrive vers la tour.
+     */
     private fun slabCenter(st: St, t: Double): Double {
         if (!st.frozenAt.isNaN() && t >= st.frozenAt) return st.frozenC
-        val a = 430.0
-        val v = speed(st.level)
-        var ph = ((t - st.startT) * v) % (4 * a)
-        if (ph < 0) ph += 4 * a
-        val p = if (ph < 2 * a) -a + ph else a - (ph - 2 * a)
+        val a = 500.0
+        val w = speed(st.level) / a                     // vitesse max = A·ω au centre
+        val phase0 = Math.asin(-350.0 / a)               // départ à -350 px
+        val p = a * Math.sin(phase0 + w * (t - st.startT))
         return tc(st) + st.dir * p
     }
 
@@ -113,8 +123,9 @@ class GameSim(
     fun advance(t: Double) {
         if (s.over) return
         if (!pendingTapAt.isNaN() && t >= pendingTapAt && s.frozenAt.isNaN()) {
-            s.frozenC = slabCenter(s, pendingTapAt)
-            s.frozenAt = pendingTapAt
+            val g = gridCeil(pendingTapAt)
+            s.frozenC = slabCenter(s, g)
+            s.frozenAt = g
             s.cutDone = false
             pendingTapAt = Double.NaN
             snap(s.frozenAt)
@@ -170,7 +181,7 @@ class GameSim(
         // bloc mobile : visible tant qu'il n'est pas posé (rogné) ; il apparaît à son point de départ
         val landed = !st.frozenAt.isNaN() && st.cutDone
         if (!landed && !st.over) {
-            val c = slabCenter(st, tau)
+            val c = slabCenter(st, gridFloor(tau))
             val fall = if (!st.frozenAt.isNaN() && tau >= st.frozenAt) min(18.0, (tau - st.frozenAt) * 400) else 0.0
             val sy = towerY - 18 - 0.4 * abs(c - tc(st)).coerceAtMost(300.0) + fall
             comp(c - st.width / 2, c + st.width / 2, sy, st.cS)?.let { out.add(it) }

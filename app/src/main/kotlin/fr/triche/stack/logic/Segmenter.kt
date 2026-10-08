@@ -105,6 +105,8 @@ class Segmenter(val step: Int = 2, private val roiTop: Double = 0.30, private va
         for (s in cnt.values) {
             val area = s[0] * step * step
             if (area < minArea) continue
+            // le dégradé violet du fond (certains téléphones le rendent plus clair) n'est pas un bloc : il occupe toute la largeur
+            if (s[2] - s[1] > 0.85 * f.w) continue
             out.add(Comp(s[1], s[2] + step - 1, s[3], s[4] + step - 1, area, s[5] / s[0], s[6] / s[0], s[7] / s[0]))
         }
         return out

@@ -208,6 +208,26 @@ class BotService : Service() {
 
     private fun now() = System.nanoTime() / 1e9
 
+    // L'heure d'une image = son horodatage système (régulier, à 60/s), recalé sur l'horloge de nanoTime par le plus petit
+    // écart « arrivée − horodatage » observé : l'heure d'arrivée dans notre fil, elle, fluctue de plusieurs ms (file d'attente
+    // d'analyse) et brouillait la mesure de la vitesse du bloc.
+    private val offs = LongArray(300)
+    private var offN = 0
+    private var offMin = Long.MAX_VALUE
+    private var lastTs = 0L
+
+    private fun frameTime(ts: Long, arrival: Long): Double {
+        if (ts <= 0L || ts <= lastTs) return arrival / 1e9
+        lastTs = ts
+        val o = arrival - ts
+        offs[offN % offs.size] = o
+        offN++
+        var m = Long.MAX_VALUE
+        for (i in 0 until minOf(offN, offs.size)) if (offs[i] < m) m = offs[i]
+        offMin = m
+        return (ts + offMin) / 1e9
+    }
+
     private var frames = 0
     private var segTime = 0.0
     private var lastStat = 0.0
@@ -215,13 +235,14 @@ class BotService : Service() {
     private fun onFrame(r: ImageReader) {
         val image = r.acquireLatestImage() ?: return
         try {
-            val t = now()
+            val arrival = System.nanoTime()
+            val t = frameTime(image.timestamp, arrival)
             val plane = image.planes[0]
             val frame = Frame(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
             val tSeg = now()
             val comps = segmenter.segment(frame)
             val tapAt = bot.onFrame(t, comps)
-            schedule(tapAt, t)
+            schedule(tapAt)
             frames++
             segTime += now() - tSeg
             if (t - lastStat > 5.0) {
@@ -251,9 +272,10 @@ class BotService : Service() {
         } else Journal.add("TOUCHER impossible : service d'accessibilité inactif")
     }
 
-    /** Programme (ou déplace) le toucher à l'instant [tapAt] ; null : plus de toucher prévu. */
-    private fun schedule(tapAt: Double?, t: Double) {
+    /** Programme (ou déplace) le toucher à l'instant [tapAt] (horloge de nanoTime) ; null : plus de toucher prévu. */
+    private fun schedule(tapAt: Double?) {
         val h = tapHandler ?: return
+        val t = now()
         if (t - lastTap < 0.9) return                                    // un toucher vient de partir : on attend la pose
         if (tapAt == null) {
             // un toucher imminent n'est pas annulé par une image douteuse
@@ -266,7 +288,7 @@ class BotService : Service() {
         if (!scheduledAt.isNaN() && scheduledAt - t < 0.012) return   // trop tard pour le déplacer : il part
         h.removeCallbacks(tapRunnable)
         scheduledAt = tapAt
-        h.postDelayed(tapRunnable, ((tapAt - t) * 1000).toLong().coerceAtLeast(0))
+        h.postDelayed(tapRunnable, Math.round((tapAt - t) * 1000).coerceAtLeast(0))
     }
 
     override fun onDestroy() {
