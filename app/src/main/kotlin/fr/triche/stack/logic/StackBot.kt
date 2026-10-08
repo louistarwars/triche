@@ -38,7 +38,10 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     var lastError = 0.0
         private set
 
-    /** Journal facultatif (tests). */
+    /** Ajoute une ligne au journal (utilisé aussi par le service Android). */
+    fun note(s: String) { log?.invoke(s) }
+
+    /** Journal : lignes de diagnostic (état chaque seconde, poses, touchers). */
     var log: ((String) -> Unit)? = null
     var debug: ((String) -> Unit)? = null
 
@@ -67,6 +70,8 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
     private var pendingTap = false
 
     private var lastY = 0.0
+    private var nextDiag = 0.0
+    private var dRms = Double.NaN
     private var staticSince = 0.0
     private var staticRef = 0.0
     private var vSeen = 0.0
@@ -147,6 +152,14 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         // on reste sur le bloc déjà suivi (même couleur) plutôt que sur le plus gros
         val slabC = (if (prevRgb != null) cands.filter { it.colorDist(prevRgb[0], prevRgb[1], prevRgb[2]) <= 4 }.maxByOrNull { it.area } else null)
             ?: cands.maxByOrNull { it.area }
+
+        if (t >= nextDiag) {
+            nextDiag = t + 2.0
+            val shapes = comps.sortedByDescending { it.area }.take(4).joinToString(" ") { "[${it.xmin}-${it.xmax} y${it.ymin}-${it.ymax} a${it.area} (${it.r},${it.g},${it.b})]" }
+            log?.invoke("ÉTAT score=%d tour=%s ct=%s bloc=%s échantillons=%d vitesse=%.0f rms=%.1f latence=%.0f/%.0f ms formes=%s".format(
+                score, if (hasTower) "%.0f..%.0f".format(tx0, tx1) else "inconnue", ct?.joinToString(",") ?: "?",
+                slabC?.let { "${it.xmin}-${it.xmax}" } ?: "aucun", ns, lastV, dRms, latLeft * 1000, latRight * 1000, if (slabC == null) shapes else "-"))
+        }
 
         // sommet de la tour : mesuré tant que le bloc mobile ne le recouvre pas
         val c0 = ct
@@ -230,6 +243,7 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         // ---- régression ----
         val fit = fit() ?: run { status = "Score estimé $score — je suis le bloc…"; return null }
         val v = fit.v
+        dRms = fit.rms
         if (fit.rms < 3.0 && abs(v) > abs(vSeen) && abs(v) < 900) vSeen = v
         if (lastV == 0.0 || (abs(v) >= 0.7 * abs(lastV) && abs(v) > 150)) lastV = v
         if (abs(v) < 150 || fit.rms > 3.0 || !hasTower) return null
@@ -260,6 +274,8 @@ class StackBot(private val w: Int, private val h: Int, var settings: StackSettin
         if (tau < -0.01 || tau > 1.5) return null
         val tTap = st[ns - 1] + tau - lat
         if (tTap > t + 0.18) return null
+        if (!pendingTap) log?.invoke("PRÉVU toucher dans %.0f ms : centre bloc %.0f -> tour %.0f, vitesse %.0f px/s, rms %.1f, latence %.0f ms, bloc %.0f px / tour %.0f px".format(
+            (max(tTap, t) - t) * 1000, csNow, tc, v, fit.rms, lat * 1000, slabW, towerW))
         pendingTap = true
         return max(tTap, t)
     }

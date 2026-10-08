@@ -23,6 +23,7 @@ import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
+import kotlin.math.max
 import fr.triche.stack.logic.Frame
 import fr.triche.stack.logic.Segmenter
 import fr.triche.stack.logic.StackBot
@@ -92,6 +93,10 @@ class BotService : Service() {
         val (w0, h0) = realSize()
         val sc = if (w0 > MAX_WIDTH) MAX_WIDTH.toFloat() / w0 else 1f
         bot = StackBot((w0 * sc).toInt(), (h0 * sc).toInt(), prefs.settings()) // avant la capture : les images arrivent dès qu'elle démarre
+        Journal.reset()
+        bot.log = { Journal.add(it) }
+        Journal.add("DÉMARRAGE écran ${w0}x$h0 -> image ${(w0 * sc).toInt()}x${(h0 * sc).toInt()}, Android ${Build.VERSION.SDK_INT}, ${Build.MANUFACTURER} ${Build.MODEL}, " +
+            "cible=${prefs.target} fin volontaire=${prefs.endOnTarget} latence ${(prefs.latLeft * 1000).toInt()}/${(prefs.latRight * 1000).toInt()} ms, accessibilité=${TapService.instance != null}")
         startAsForeground("Démarrage…")
         try {
             startCapture(code, data)
@@ -140,6 +145,7 @@ class BotService : Service() {
         if (now - lastSave > 5000) {
             lastSave = now
             saveLatency()
+            Journal.save(this)
         }
         if (text == lastStatus || now - lastNotif < 800) return
         lastNotif = now
@@ -202,14 +208,28 @@ class BotService : Service() {
 
     private fun now() = System.nanoTime() / 1e9
 
+    private var frames = 0
+    private var segTime = 0.0
+    private var lastStat = 0.0
+
     private fun onFrame(r: ImageReader) {
         val image = r.acquireLatestImage() ?: return
         try {
             val t = now()
             val plane = image.planes[0]
             val frame = Frame(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
-            val tapAt = bot.onFrame(t, segmenter.segment(frame))
+            val tSeg = now()
+            val comps = segmenter.segment(frame)
+            val tapAt = bot.onFrame(t, comps)
             schedule(tapAt, t)
+            frames++
+            segTime += now() - tSeg
+            if (t - lastStat > 5.0) {
+                if (lastStat > 0) Journal.add("IMAGES %.0f/s, analyse moyenne %.1f ms".format(frames / (t - lastStat), 1000 * segTime / max(1, frames)))
+                lastStat = t
+                frames = 0
+                segTime = 0.0
+            }
             updateNotification()
         } catch (e: Exception) {
             Log.e(TAG, "Erreur d'analyse", e)
@@ -220,13 +240,15 @@ class BotService : Service() {
 
     private val tapRunnable = Runnable {
         val t = now()
+        val lag = if (scheduledAt.isNaN()) 0.0 else (t - scheduledAt) * 1000
         scheduledAt = Double.NaN
         val svc = TapService.instance
         if (svc != null) {
             lastTap = t
-            svc.tap(realW * 0.5f, realH * 0.70f)
+            val ok = svc.tap(realW * 0.5f, realH * 0.70f)
+            Journal.add("TOUCHER envoyé (retard sur l'heure prévue : %.0f ms, dispatchGesture=%s)".format(lag, ok))
             bot.onTapped(t)
-        }
+        } else Journal.add("TOUCHER impossible : service d'accessibilité inactif")
     }
 
     /** Programme (ou déplace) le toucher à l'instant [tapAt] ; null : plus de toucher prévu. */
@@ -255,6 +277,8 @@ class BotService : Service() {
         reader?.close()
         projection?.stop()
         if (::bot.isInitialized) {
+            Journal.add("ARRÊT score=${bot.score}")
+            Journal.save(this)
             saveLatency()
             prefs.lastResult = "Dernière partie : ${bot.score} blocs (latence apprise ${(bot.latLeft * 1000).toInt()}/${(bot.latRight * 1000).toInt()} ms)"
         }

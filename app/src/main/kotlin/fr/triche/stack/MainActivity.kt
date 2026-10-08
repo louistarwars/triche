@@ -87,6 +87,10 @@ class MainActivity : Activity() {
         }
         col.addView(stop)
         col.addView(Button(this).apply {
+            text = "Voir / copier le journal de la dernière partie"
+            setOnClickListener { showJournal() }
+        })
+        col.addView(Button(this).apply {
             text = "Oublier la latence apprise"
             setOnClickListener { prefs.resetLatency(); refresh() }
         })
@@ -99,7 +103,9 @@ class MainActivity : Activity() {
                 "• Ouvre le jeu et touche l'écran pour lancer la partie : le bot prend le relais dès qu'il voit le bloc glisser.\n" +
                 "• Les premiers blocs servent à calibrer le délai de réaction du téléphone (un peu de décalage au début est normal) ; " +
                 "il est mémorisé pour les parties suivantes.\n" +
-                "• Arrêt : bouton « Arrêter » de la notification.",
+                "• Arrêt : bouton « Arrêter » de la notification.\n" +
+                "• Si ça se passe mal : certains téléphones ne permettent pas d'enregistrer l'écran pendant que le bot le capture. " +
+                "Le bot tient donc un journal de ce qu'il voit et fait : après la partie, « Voir / copier le journal », « Copier », et colle-le dans la conversation.",
             14f, pad,
         ))
         setContentView(ScrollView(this).apply { addView(col) })
@@ -121,6 +127,28 @@ class MainActivity : Activity() {
             (prefs.lastResult.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: "")
         start.isEnabled = acc && !run
         stop.isEnabled = run
+    }
+
+    /** Le téléphone ne permet pas de filmer l'écran pendant que le bot le capture : le journal le remplace. */
+    private fun showJournal() {
+        val txt = (if (BotService.running) Journal.text() else Journal.text().ifEmpty { Journal.load(this) }).ifEmpty { "(journal vide : lance d'abord le bot)" }
+        val tv = TextView(this).apply {
+            text = txt
+            textSize = 10f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setTextIsSelectable(true)
+            setPadding(24, 24, 24, 24)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Journal du bot")
+            .setView(ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("Copier") { _, _ ->
+                val cm = getSystemService(android.content.ClipboardManager::class.java)
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("journal", txt))
+                android.widget.Toast.makeText(this, "Journal copié : colle-le dans la conversation", android.widget.Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Fermer", null)
+            .show()
     }
 
     private fun saveAndAskCapture() {
