@@ -20,19 +20,19 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Tests de la logique (détection + simulation du jeu)
+      - name: Tests de la logique (détection sur de vraies images du jeu)
         run: ./gradlew -p sim test --no-daemon
 
       - name: Compilation de l'APK
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Préparer l'APK
-        run: cp app/build/outputs/apk/debug/triche-stack-debug.apk triche-stack.apk
+        run: cp app/build/outputs/apk/debug/triche-react-debug.apk triche-react.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: triche-stack
-          path: triche-stack.apk
+          name: triche-react
+          path: triche-react.apk
 
       - name: Envoyer l'APK sur Discord
         env:
@@ -43,6 +43,6 @@ jobs:
             exit 0
           fi
           curl -sS --fail \
-            -F "payload_json={\"content\":\"Nouvel APK Triche Stack (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
-            -F "file=@triche-stack.apk" \
+            -F "payload_json={\"content\":\"Nouvel APK Triche React (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
+            -F "file=@triche-react.apk" \
             "$DISCORD_WEBHOOK_URL"

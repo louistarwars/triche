@@ -1,4 +1,4 @@
-package fr.triche.stack
+package fr.triche.react
 
 import android.content.Context
 import android.os.SystemClock

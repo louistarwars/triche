@@ -1,4 +1,4 @@
-package fr.triche.stack
+package fr.triche.react
 
 import android.Manifest
 import android.app.Activity
@@ -10,7 +10,6 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
-import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -24,8 +23,7 @@ class MainActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var status: TextView
-    private lateinit var target: EditText
-    private lateinit var endOnTarget: CheckBox
+    private lateinit var delay: EditText
     private lateinit var start: Button
     private lateinit var stop: Button
 
@@ -45,29 +43,20 @@ class MainActivity : Activity() {
             setPadding(pad, pad * 2, pad, pad)
         }
         col.addView(TextView(this).apply {
-            text = "Triche Stack"
+            text = "Triche React"
             textSize = 28f
             gravity = Gravity.CENTER_HORIZONTAL
         })
         status = label("", 15f, pad / 2)
         col.addView(status)
 
-        col.addView(label("Score visé (nombre de blocs, 0 = jamais s'arrêter)", 16f, pad))
-        target = EditText(this).apply {
+        col.addView(label("Délai ajouté avant chaque toucher (ms)", 16f, pad))
+        delay = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER
-            setText(prefs.target.toString())
+            setText(prefs.extraDelay.toString())
         }
-        col.addView(target)
-        endOnTarget = CheckBox(this).apply {
-            text = "Une fois le score atteint, rater volontairement pour terminer la partie"
-            isChecked = prefs.endOnTarget
-        }
-        col.addView(endOnTarget)
-        col.addView(label(
-            "Décoché : le bot arrête simplement de jouer au score visé (la partie reste en cours). " +
-                "Coché : il fait tomber les blocs à côté ; selon la largeur restante, le score final peut dépasser la cible d'un ou deux blocs.",
-            12f,
-        ))
+        col.addView(delay)
+        col.addView(label("0 = le plus vite possible. Monte-le (par ex. 150) si tu veux un temps de réaction plus « humain ».", 12f))
 
         col.addView(Button(this).apply {
             text = "1. Activer le service d'accessibilité"
@@ -87,26 +76,18 @@ class MainActivity : Activity() {
         }
         col.addView(stop)
         col.addView(Button(this).apply {
-            text = "Voir / copier le journal de la dernière partie"
+            text = "Voir / copier le journal"
             setOnClickListener { showJournal() }
-        })
-        col.addView(Button(this).apply {
-            text = "Oublier la latence apprise"
-            setOnClickListener { prefs.resetLatency(); refresh() }
         })
 
         col.addView(label(
             "Mode d'emploi\n" +
-                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche Stack ». " +
+                "• Étape 1 : dans Accessibilité > Applications installées, active « Triche React ». " +
                 "Si Android l'interdit (réglage restreint), ouvre Infos de l'appli > ⋮ > « Autoriser les paramètres restreints ».\n" +
                 "• Étape 2 : « Démarrer le bot » et accepte la capture d'écran.\n" +
-                "• Ouvre le jeu et touche l'écran pour lancer la partie : le bot prend le relais dès qu'il voit le bloc glisser.\n" +
-                "• Les 8 premiers blocs servent à calibrer le délai de réaction du téléphone (un peu de décalage au début est normal). " +
-                "Ensuite le bot ne touche que lorsque le bloc peut être posé pile : il laisse passer les mauvais passages, donc il est lent " +
-                "(plusieurs secondes par bloc) mais précis.\n" +
+                "• Ouvre le jeu REACT, lance la partie (Start) : dès qu'un cercle devient vert, le bot le touche.\n" +
                 "• Arrêt : bouton « Arrêter » de la notification.\n" +
-                "• Si ça se passe mal : certains téléphones ne permettent pas d'enregistrer l'écran pendant que le bot le capture. " +
-                "Le bot tient donc un journal de ce qu'il voit et fait : après la partie, « Voir / copier le journal », « Copier », et colle-le dans la conversation.",
+                "• Après une partie, « Voir / copier le journal » : colle-le ici si le temps de réaction n'est pas bon.",
             14f, pad,
         ))
         setContentView(ScrollView(this).apply { addView(col) })
@@ -123,16 +104,15 @@ class MainActivity : Activity() {
         val acc = TapService.instance != null
         val run = BotService.running
         status.text = (if (acc) "✅ Service d'accessibilité actif" else "❌ Service d'accessibilité inactif") + "\n" +
-            (if (run) "✅ Bot en marche" else "⏸ Bot arrêté") + "\n" +
-            "Latence mémorisée : ${(prefs.latLeft * 1000).toInt()} / ${(prefs.latRight * 1000).toInt()} ms" +
+            (if (run) "✅ Bot en marche" else "⏸ Bot arrêté") +
             (prefs.lastResult.takeIf { it.isNotEmpty() }?.let { "\n$it" } ?: "")
         start.isEnabled = acc && !run
         stop.isEnabled = run
     }
 
-    /** Le téléphone ne permet pas de filmer l'écran pendant que le bot le capture : le journal le remplace. */
     private fun showJournal() {
-        val txt = (if (BotService.running) Journal.text() else Journal.text().ifEmpty { Journal.load(this) }).ifEmpty { "(journal vide : lance d'abord le bot)" }
+        val txt = (if (BotService.running) Journal.text() else Journal.text().ifEmpty { Journal.load(this) })
+            .ifEmpty { "(journal vide : lance d'abord le bot)" }
         val tv = TextView(this).apply {
             text = txt
             textSize = 10f
@@ -153,8 +133,7 @@ class MainActivity : Activity() {
     }
 
     private fun saveAndAskCapture() {
-        prefs.target = (target.text.toString().toIntOrNull() ?: prefs.target).coerceAtLeast(0)
-        prefs.endOnTarget = endOnTarget.isChecked
+        prefs.extraDelay = (delay.text.toString().toIntOrNull() ?: 0).coerceIn(0, 2000)
         val mpm = getSystemService(MediaProjectionManager::class.java)
         @Suppress("DEPRECATION")
         startActivityForResult(mpm.createScreenCaptureIntent(), REQ_CAPTURE)

@@ -1,4 +1,4 @@
-package fr.triche.stack
+package fr.triche.react
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -32,12 +32,16 @@ class TapService : AccessibilityService() {
 
     override fun onInterrupt() = Unit
 
-    /** Un toucher très bref (8 ms) : le jeu prend l'appui en compte dès qu'il commence. */
-    fun tap(x: Float, y: Float): Boolean {
+    /** Un toucher le plus bref possible (1 ms). [done] est appelé quand le système a fini d'injecter le geste. */
+    fun tap(x: Float, y: Float, done: ((Boolean) -> Unit)? = null): Boolean {
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, 8))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, 1))
             .build()
-        return dispatchGesture(gesture, null, null)
+        val cb = if (done == null) null else object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) = done(true)
+            override fun onCancelled(gestureDescription: GestureDescription?) = done(false)
+        }
+        return dispatchGesture(gesture, cb, null)
     }
 }

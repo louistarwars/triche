@@ -1,4 +1,4 @@
-import fr.triche.stack.logic.Frame
+import fr.triche.react.logic.Frame
 import java.io.File
 import java.nio.ByteBuffer
 import javax.imageio.ImageIO
