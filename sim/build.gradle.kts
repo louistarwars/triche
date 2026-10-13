@@ -18,7 +18,6 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     maxHeapSize = "2g"
-    timeout.set(java.time.Duration.ofMinutes(5))
     systemProperty("junit.jupiter.execution.timeout.default", "90 s")
     testLogging {
         events("passed", "failed")
