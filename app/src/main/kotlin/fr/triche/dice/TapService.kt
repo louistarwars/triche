@@ -1,4 +1,4 @@
-package fr.triche.react
+package fr.triche.dice
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription

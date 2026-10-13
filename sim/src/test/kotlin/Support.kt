@@ -1,4 +1,4 @@
-import fr.triche.react.logic.Frame
+import fr.triche.dice.logic.Frame
 import java.io.File
 import java.nio.ByteBuffer
 import javax.imageio.ImageIO
@@ -25,7 +25,4 @@ object Support {
     }
 
     fun load(f: File): Frame = frameOf(ImageIO.read(f))
-
-    /** Dossier des images de la vidéo (f0001.png…), s'il est fourni. */
-    fun videoDir(): File? = System.getProperty("stack.frames")?.takeIf { it.isNotEmpty() }?.let(::File)?.takeIf { it.isDirectory }
 }

@@ -27,12 +27,12 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Préparer l'APK
-        run: cp app/build/outputs/apk/debug/triche-react-debug.apk triche-react.apk
+        run: cp app/build/outputs/apk/debug/triche-dice-debug.apk triche-dice.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: triche-react
-          path: triche-react.apk
+          name: triche-dice
+          path: triche-dice.apk
 
       - name: Envoyer l'APK sur Discord
         env:
@@ -43,6 +43,6 @@ jobs:
             exit 0
           fi
           curl -sS --fail \
-            -F "payload_json={\"content\":\"Nouvel APK Triche React (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
-            -F "file=@triche-react.apk" \
+            -F "payload_json={\"content\":\"Nouvel APK Triche Dice (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
+            -F "file=@triche-dice.apk" \
             "$DISCORD_WEBHOOK_URL"

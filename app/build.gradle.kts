@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-react")
+base.archivesName.set("triche-dice")
 
 android {
-    namespace = "fr.triche.react"
+    namespace = "fr.triche.dice"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.react"
+        applicationId = "fr.triche.dice"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

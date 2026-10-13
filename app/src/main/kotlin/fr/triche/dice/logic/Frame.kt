@@ -1,4 +1,4 @@
-package fr.triche.react.logic
+package fr.triche.dice.logic
 
 import java.nio.ByteBuffer
 
