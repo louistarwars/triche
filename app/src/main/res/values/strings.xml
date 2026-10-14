@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Triche Dice</string>
-    <string name="accessibility_description">Permet à Triche Dice de taper les chiffres à ta place pendant le jeu.</string>
+    <string name="app_name">Compteur de cubes</string>
 </resources>

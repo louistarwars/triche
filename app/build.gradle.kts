@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-dice")
+base.archivesName.set("triche-cubes")
 
 android {
-    namespace = "fr.triche.dice"
+    namespace = "fr.triche.cubes"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.dice"
+        applicationId = "fr.triche.cubes"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

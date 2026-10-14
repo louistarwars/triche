@@ -1,27 +1,25 @@
-# Triche Dice
+# Compteur de cubes
 
-Application Android qui joue à **DICE ROLL** à ta place (3 manches : additionner 4 dés et taper la somme sur le pavé) et
-qui vise **le score total que tu choisis**. Le score du jeu est la somme des temps des manches ; le bot lit les dés, puis
-attend et tape le dernier chiffre au moment qui donne à chaque manche la durée voulue.
+Application Android qui **filme l'écran d'un autre appareil** (tablette, téléphone…) où tourne le jeu « Combien de boîtes
+avez-vous vues ? » et **affiche le nombre de boîtes** qui viennent de passer sur la plateforme orange.
 
-* Capture d'écran (MediaProjection) : lecture des dés (points noirs sur carrés blancs) et du chronomètre gris (chiffres lus
-  par comparaison avec les signatures mesurées sur la vidéo du jeu).
-* Touchers (service d'accessibilité) sur le pavé numérique, dont la position est détectée à l'écran.
-* Temps de chaque manche = (temps total voulu − temps déjà fait) ÷ manches restantes : les écarts d'une manche sont
-  rattrapés sur la suivante.
-* Le début d'une manche se déduit des pas du chronomètre (premier pas au départ, puis toutes les 0,1 s).
-* **Latence** : délai entre l'envoi du dernier toucher et l'arrêt du chronomètre, vu depuis nos images. Elle dépend du
-  téléphone : après la 1re partie, saisis le score affiché par le jeu et appuie sur « Corriger la latence ».
-* Journal (« Voir / copier le journal ») : le bot y écrit ce qu'il voit et ce qu'il fait, utile si quelque chose cloche.
+* Caméra arrière (Camera2) en ~720p, 60 images/s si le téléphone le permet ; aperçu à l'écran.
+* Chaque image est réduite puis classée par couleur : plateforme orange, dessus clair des boîtes (un par boîte), autres
+  faces. Le nombre d'un passage est celui du plateau de plusieurs images de suite où il ne bouge plus (filtre médian
+  contre les images floues).
+* Affichage : nombre du dernier passage (la réponse à taper), historique par niveau et total. Boutons −1 / +1 pour
+  corriger le dernier nombre, remise à zéro, et journal copiable.
+* Aucune permission autre que la caméra ; aucun accès au jeu : l'application ne fait que regarder.
 
-## Construire l'APK
+## Tests
 
-GitHub Actions (`.github/workflows/build-apk.yml`) lance les tests de `sim/` (lecture sur de vraies images + simulation d'une
-partie) puis compile l'APK (artefact `triche-dice`, envoyé aussi sur Discord si le secret `DISCORD_WEBHOOK_URL` existe).
+`sim/` rejoue la vraie vidéo (330 images, niveaux 1 et 2 : 3 puis 5 boîtes) et la même vidéo avec une plateforme 2 à 3 fois
+plus rapide (une image sur deux ou trois). CI : tests puis compilation de l'APK (artefact `triche-cubes`, envoyé aussi sur
+Discord si le secret `DISCORD_WEBHOOK_URL` existe).
 
 ## Limites
 
-* Jamais essayé sur un vrai téléphone : seule la lecture des images (vraies images de la vidéo) et la logique (jeu simulé)
-  sont testées.
-* Temps minimum : ≈ 0,5 s par manche (lecture + frappe) ; on ne peut pas descendre en dessous.
-* Précision attendue après réglage de la latence : quelques centièmes de seconde par manche (gigue du système).
+* Calé sur les niveaux 1 et 2 de la vidéo (boîtes dorées à dessus clair sur plateforme orange). Pas testé sur un vrai
+  téléphone ni sur les niveaux suivants : boîtes empilées ou cachées derrière d'autres, couleurs changées, plateforme plus
+  rapide que la caméra.
+* Il faut cadrer l'écran du jeu en entier, sans reflet, avec la luminosité de l'écran assez haute.
