@@ -27,12 +27,12 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Préparer l'APK
-        run: cp app/build/outputs/apk/debug/triche-cubes-debug.apk triche-cubes.apk
+        run: cp app/build/outputs/apk/debug/triche-timesup-debug.apk triche-timesup.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: triche-cubes
-          path: triche-cubes.apk
+          name: triche-timesup
+          path: triche-timesup.apk
 
       - name: Envoyer l'APK sur Discord
         env:
@@ -43,6 +43,6 @@ jobs:
             exit 0
           fi
           curl -sS --fail \
-            -F "payload_json={\"content\":\"Nouvel APK Compteur de cubes (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
-            -F "file=@triche-cubes.apk" \
+            -F "payload_json={\"content\":\"Nouvel APK Triche Time's Up (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
+            -F "file=@triche-timesup.apk" \
             "$DISCORD_WEBHOOK_URL"

@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-cubes")
+base.archivesName.set("triche-timesup")
 
 android {
-    namespace = "fr.triche.cubes"
+    namespace = "fr.triche.timesup"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.cubes"
+        applicationId = "fr.triche.timesup"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

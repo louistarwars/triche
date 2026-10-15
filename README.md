@@ -1,25 +1,30 @@
-# Compteur de cubes
+# Triche Time's Up
 
-Application Android qui **filme l'écran d'un autre appareil** (tablette, téléphone…) où tourne le jeu « Combien de boîtes
-avez-vous vues ? » et **affiche le nombre de boîtes** qui viennent de passer sur la plateforme orange.
+Application Android qui joue à **TIME'S UP** (« Regarde une barre se vider… touche quand le temps est écoulé ») avec une
+précision de quelques millisecondes.
 
-* Caméra arrière (Camera2) en ~720p, 60 images/s si le téléphone le permet ; aperçu à l'écran.
-* Chaque image est réduite puis classée par couleur : plateforme orange, dessus clair des boîtes (un par boîte), autres
-  faces. Le nombre d'un passage est celui du plateau de plusieurs images de suite où il ne bouge plus (filtre médian
-  contre les images floues).
-* Affichage : nombre du dernier passage (la réponse à taper), historique par niveau et total. Boutons −1 / +1 pour
-  corriger le dernier nombre, remise à zéro, et journal copiable.
-* Aucune permission autre que la caméra ; aucun accès au jeu : l'application ne fait que regarder.
+* Capture d'écran (MediaProjection, 720 px de large) : à chaque image, position du bord haut de la partie pleine de la barre,
+  au 1/10 de pixel (interpolation sur la demi-hauteur de la marche).
+* La barre se vide à vitesse constante : droite ajustée sur les mesures (écart ≈ 0,5 px), fin = instant où le bord atteint le
+  bas de la barre. La barre s'efface à mi-course, d'où l'extrapolation de la seconde moitié.
+* Toucher (service d'accessibilité) à `fin − latence`, depuis un fil prioritaire qui attend « à vif » (spin) pour tomber à
+  ~1 ms de l'heure visée ; l'heure peut encore être corrigée par l'analyse des images pendant l'attente.
+* Latence : première partie recalée d'après le délai envoi → résultat à l'écran ; ensuite on saisit les décalages affichés par
+  le jeu (« 0.69 s Trop tôt ! »), et une régression en deux paramètres (latence, position du bas de la barre) s'affine à
+  chaque partie.
+* Appuie toute seule sur « NIVEAU SUIVANT » (désactivable).
+* Journal copiable depuis l'appli.
 
 ## Tests
 
-`sim/` rejoue la vraie vidéo (330 images, niveaux 1 et 2 : 3 puis 5 boîtes) et la même vidéo avec une plateforme 2 à 3 fois
-plus rapide (une image sur deux ou trois). CI : tests puis compilation de l'APK (artefact `triche-cubes`, envoyé aussi sur
-Discord si le secret `DISCORD_WEBHOOK_URL` existe).
+`sim/` : lecture de la barre et du bouton sur de vraies images de la vidéo, ajustement sur les positions réellement mesurées
+(fin prévue à 8,853 s et 19,226 s comme l'ajustement indépendant), jeu simulé (3 manches : 3,76 s, 9,83 s, 11,43 s) avec
+erreur de toucher de quelques ms, apprentissage de la latence. CI : tests puis APK (artefact `triche-timesup`, envoyé aussi
+sur Discord si le secret `DISCORD_WEBHOOK_URL` existe).
 
 ## Limites
 
-* Calé sur les niveaux 1 et 2 de la vidéo (boîtes dorées à dessus clair sur plateforme orange). Pas testé sur un vrai
-  téléphone ni sur les niveaux suivants : boîtes empilées ou cachées derrière d'autres, couleurs changées, plateforme plus
-  rapide que la caméra.
-* Il faut cadrer l'écran du jeu en entier, sans reflet, avec la luminosité de l'écran assez haute.
+* Jamais essayée sur un vrai téléphone. Calée sur la vidéo : barre centrée, 29 % de la largeur, bas à 77,8 % de la hauteur,
+  fond bleu foncé. Un écran de proportions très différentes peut décaler ces positions.
+* Le jeu affiche le décalage au centième : on ne peut pas apprendre la latence mieux qu'à ±5 ms près par partie ; la précision
+  vient de la moyenne sur plusieurs parties.
