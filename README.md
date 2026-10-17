@@ -1,30 +1,29 @@
-# Triche Time's Up
+# Triche Piano
 
-Application Android qui joue à **TIME'S UP** (« Regarde une barre se vider… touche quand le temps est écoulé ») avec une
-précision de quelques millisecondes.
+Application Android qui joue à **PIANO** (des touches blanches descendent, il faut toucher chacune une fois ; toucher le vide
+termine la partie).
 
-* Capture d'écran (MediaProjection, 720 px de large) : à chaque image, position du bord haut de la partie pleine de la barre,
-  au 1/10 de pixel (interpolation sur la demi-hauteur de la marche).
-* La barre se vide à vitesse constante : droite ajustée sur les mesures (écart ≈ 0,5 px), fin = instant où le bord atteint le
-  bas de la barre. La barre s'efface à mi-course, d'où l'extrapolation de la seconde moitié.
-* Toucher (service d'accessibilité) à `fin − latence`, depuis un fil prioritaire qui attend « à vif » (spin) pour tomber à
-  ~1 ms de l'heure visée ; l'heure peut encore être corrigée par l'analyse des images pendant l'attente.
-* Latence : première partie recalée d'après le délai envoi → résultat à l'écran ; ensuite on saisit les décalages affichés par
-  le jeu (« 0.69 s Trop tôt ! »), et une régression en deux paramètres (latence, position du bas de la barre) s'affine à
-  chaque partie.
-* Appuie toute seule sur « NIVEAU SUIVANT » (désactivable).
+* Capture d'écran (MediaProjection, 720 px de large). Toutes les touches partagent la même position de défilement : on la
+  mesure (modulo 300 px) sur les bords des touches blanches de quatre colonnes, on la « déroule » dans le temps, on en
+  déduit la vitesse (qui augmente pendant la partie) et la position de chaque case (rangée, colonne).
+* Chaque case blanche est touchée une seule fois, au centre de l'endroit où elle sera quand le toucher arrivera dans le jeu.
+  La latence est apprise pendant la partie (instant où la touche s'éteint après le toucher). Une touche qui reste blanche
+  0,45 s après son toucher est retouchée (3 essais au plus).
+* Plusieurs touches à la fois : un seul geste de l'accessibilité, touchers de 1 ms espacés de 12 ms (jamais deux doigts
+  simultanés), la plus basse d'abord. Un geste n'est envoyé qu'une fois le précédent terminé.
+* Rien n'est touché hors du jeu : le décor doit être le violet foncé du jeu et le suivi verrouillé sur la grille.
 * Journal copiable depuis l'appli.
 
 ## Tests
 
-`sim/` : lecture de la barre et du bouton sur de vraies images de la vidéo, ajustement sur les positions réellement mesurées
-(fin prévue à 8,853 s et 19,226 s comme l'ajustement indépendant), jeu simulé (3 manches : 3,76 s, 9,83 s, 11,43 s) avec
-erreur de toucher de quelques ms, apprentissage de la latence. CI : tests puis APK (artefact `triche-timesup`, envoyé aussi
-sur Discord si le secret `DISCORD_WEBHOOK_URL` existe).
+`sim/` : suivi du défilement sur la vraie vidéo (vitesses 700 → 1250 px/s mesurées comme à part), phases sur images pleine
+définition, aucun toucher sur les menus et écrans de fin, parties simulées (500 puis 2600 px/s, latences de 30 à 120 ms, 30 à
+120 images/s) sans un seul toucher à côté. CI : tests puis APK (artefact `triche-piano`, envoyé aussi sur Discord si le secret
+`DISCORD_WEBHOOK_URL` existe).
 
 ## Limites
 
-* Jamais essayée sur un vrai téléphone. Calée sur la vidéo : barre centrée, 29 % de la largeur, bas à 77,8 % de la hauteur,
-  fond bleu foncé. Un écran de proportions très différentes peut décaler ces positions.
-* Le jeu affiche le décalage au centième : on ne peut pas apprendre la latence mieux qu'à ±5 ms près par partie ; la précision
-  vient de la moyenne sur plusieurs parties.
+* Jamais essayée sur un vrai téléphone. Géométrie calée sur la vidéo (grille de 4 colonnes, rangées de 300 px sur 720, zone de
+  jeu à 19,2 % de la hauteur) : un écran de proportions très différentes peut décaler ces positions.
+* Au-delà d'environ 5000 px/s (loin de ce que montre la vidéo, 1370 px/s à 27 s) la simulation perd.
+* Le jeu pourrait réserver des surprises hors de la vidéo (touches d'une autre couleur, rangées plus grandes à plus haut score).

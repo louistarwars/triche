@@ -27,12 +27,12 @@ jobs:
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Préparer l'APK
-        run: cp app/build/outputs/apk/debug/triche-timesup-debug.apk triche-timesup.apk
+        run: cp app/build/outputs/apk/debug/triche-piano-debug.apk triche-piano.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: triche-timesup
-          path: triche-timesup.apk
+          name: triche-piano
+          path: triche-piano.apk
 
       - name: Envoyer l'APK sur Discord
         env:
@@ -43,6 +43,6 @@ jobs:
             exit 0
           fi
           curl -sS --fail \
-            -F "payload_json={\"content\":\"Nouvel APK Triche Time's Up (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
-            -F "file=@triche-timesup.apk" \
+            -F "payload_json={\"content\":\"Nouvel APK Triche Piano (${GITHUB_REF_NAME} @ ${GITHUB_SHA::7})\"}" \
+            -F "file=@triche-piano.apk" \
             "$DISCORD_WEBHOOK_URL"

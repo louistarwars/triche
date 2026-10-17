@@ -1,4 +1,4 @@
-import fr.triche.timesup.logic.Frame
+import fr.triche.piano.logic.Frame
 import java.nio.ByteBuffer
 import javax.imageio.ImageIO
 
@@ -18,8 +18,6 @@ object Support {
         return Frame(ByteBuffer.wrap(bytes), w, h, w * 4, 4)
     }
 
-    private val cache = HashMap<String, Frame>()
-    fun frame(name: String): Frame = cache.getOrPut(name) {
-        frameOf(ImageIO.read(Support::class.java.getResourceAsStream("/frames/$name.png")))
-    }
+    fun load(name: String, ext: String): Frame =
+        frameOf(ImageIO.read(Support::class.java.getResourceAsStream("/frames/$name.$ext")))
 }

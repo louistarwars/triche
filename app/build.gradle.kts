@@ -3,14 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-base.archivesName.set("triche-timesup")
+base.archivesName.set("triche-piano")
 
 android {
-    namespace = "fr.triche.timesup"
+    namespace = "fr.triche.piano"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "fr.triche.timesup"
+        applicationId = "fr.triche.piano"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
